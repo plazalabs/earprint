@@ -385,7 +385,7 @@
     renderAcousticTraits(els.epAcousticTraits, traits.acousticTraits);
   }
 
-  function renderRecommendations(matchResult) {
+  function renderRecommendations(matchResult, profile) {
     els.badgeMatching.textContent = String(matchResult.recommendations.length);
     els.matchingStatusText.textContent = matchResult.message;
     els.recommendationsList.innerHTML = '';
@@ -402,6 +402,12 @@
       els.recommendationsList.appendChild(empty);
       return;
     }
+
+    const activeProfile = profile || Matching.computeEarprintProfile(state.speakers, state.ratings);
+    const experimentResults =
+      state.experiment && Array.isArray(state.experiment.results)
+        ? state.experiment.results
+        : [];
 
     matchResult.recommendations.forEach((rec, index) => {
       const speaker = rec.speaker;
@@ -424,7 +430,43 @@
       });
       card.appendChild(tags);
 
-      card.appendChild(createEl('p', 'rec-reason', rec.reason));
+      // Separated Prediction Score + Algorithm Version block
+      const predictedScore = Matching.predictScore(activeProfile, speaker);
+      const predBox = createEl('div', 'rec-prediction-box');
+      const predLeft = createEl('div', 'rec-prediction-main');
+      predLeft.appendChild(createEl('span', 'rec-prediction-label', '예측 점수'));
+      predLeft.appendChild(
+        createEl(
+          'strong',
+          'rec-prediction-value',
+          predictedScore !== null ? `${Math.round(predictedScore * 100)}%` : '-'
+        )
+      );
+      predBox.appendChild(predLeft);
+      predBox.appendChild(
+        createEl('span', 'model-version-pill', Matching.ALGORITHM_VERSION_LABEL)
+      );
+      card.appendChild(predBox);
+
+      // Separated Recommendation Reason Chips block (only computable chips)
+      const reasonChips = Matching.classifyRecommendationReasons(speaker, {
+        profile: activeProfile,
+        predictionRecords: state.predictionRecords,
+        experimentResults,
+      });
+      const reasonBlock = createEl('div', 'rec-reasons-block');
+      if (reasonChips.length > 0) {
+        reasonBlock.appendChild(createEl('span', 'rec-reasons-title', '추천 근거'));
+        const chipsRow = createEl('div', 'reason-chip-row');
+        reasonChips.forEach((chip) => {
+          const chipEl = createEl('span', `reason-chip is-${chip.type}`, chip.label);
+          chipEl.dataset.reasonType = chip.type;
+          chipsRow.appendChild(chipEl);
+        });
+        reasonBlock.appendChild(chipsRow);
+      }
+      reasonBlock.appendChild(createEl('p', 'rec-reason', rec.reason));
+      card.appendChild(reasonBlock);
 
       const actions = createEl('div', 'rec-actions');
       const listenBtn = createEl('button', 'btn btn-primary btn-sm', '이 화자 클립 듣기');
@@ -955,6 +997,9 @@
 
     renderPredictReveal(session.lastReveal);
     renderReport();
+    const updatedProfile = Matching.computeEarprintProfile(state.speakers, state.ratings);
+    const updatedMatch = Matching.recommendSpeakers(state.speakers, state.ratings, { limit: 3 });
+    renderRecommendations(updatedMatch, updatedProfile);
     window.scrollTo({ top: 0, behavior: 'auto' });
   }
 
@@ -1064,6 +1109,9 @@
       // Ignore storage errors
     }
     renderReport();
+    const profile = Matching.computeEarprintProfile(state.speakers, state.ratings);
+    const matchResult = Matching.recommendSpeakers(state.speakers, state.ratings, { limit: 3 });
+    renderRecommendations(matchResult, profile);
     if (state.activeTab === 'predict') {
       renderPredictPanel(true);
     }
@@ -1075,7 +1123,7 @@
     const profile = Matching.computeEarprintProfile(state.speakers, state.ratings);
     const matchResult = Matching.recommendSpeakers(state.speakers, state.ratings, { limit: 3 });
     renderEarprint(profile);
-    renderRecommendations(matchResult);
+    renderRecommendations(matchResult, profile);
     renderExplorer(matchResult);
     renderReport();
     if (state.activeTab === 'predict') {

@@ -87,6 +87,13 @@
     }),
   ]);
 
+  const RECOMMENDATION_REASON_CHIPS = Object.freeze({
+    SIMILAR_PACE: '발화 속도가 비슷한 화자',
+    SIMILAR_ACCENT: '높은 이해도를 보인 악센트와 유사',
+    SAME_TOPIC: '동일 주제에서 높은 이해도를 보임',
+    HIGH_ACTUAL_TEST: '실제 테스트에서 높은 이해도를 기록',
+  });
+
   function formatAccent(accent) {
     return ACCENT_LABELS[accent] || accent || ACCENT_LABELS.unknown;
   }
@@ -434,6 +441,139 @@
       },
       acousticTraits: UNMEASURED_ACOUSTIC_TRAITS.map((trait) => ({ ...trait })),
     };
+  }
+
+  /**
+   * Classifies computable recommendation reason chips for a candidate speaker.
+   * Only emits chips directly supported by the user's evaluation or submitted test data.
+   * @param {object} candidate
+   * @param {{ profile?: object, speakers?: object[], ratingsMap?: object, predictionRecords?: object[], experimentResults?: object[], testRecords?: object[] }} context
+   * @returns {Array<{ type: string, label: string }>}
+   */
+  function classifyRecommendationReasons(candidate, context) {
+    if (!candidate || typeof candidate !== 'object') return [];
+    const ctx = context && typeof context === 'object' ? context : {};
+
+    let profile = ctx.profile && typeof ctx.profile === 'object' ? ctx.profile : null;
+    if (!profile && Array.isArray(ctx.speakers) && ctx.ratingsMap && typeof ctx.ratingsMap === 'object') {
+      profile = computeEarprintProfile(ctx.speakers, ctx.ratingsMap);
+    }
+
+    const chips = [];
+
+    if (profile && Number.isFinite(profile.evaluatedCount) && profile.evaluatedCount > 0) {
+      // 1. Similar speaking pace
+      const candPaceIdx = PACE_ORDER[candidate.pace];
+      const byPace = Array.isArray(profile.byPace) ? profile.byPace : [];
+      if (candPaceIdx !== undefined && byPace.length > 0) {
+        const exactPace = byPace.find(
+          (entry) =>
+            entry &&
+            entry.key === candidate.pace &&
+            Number.isFinite(entry.count) &&
+            entry.count > 0 &&
+            Number.isFinite(entry.avgScore)
+        );
+        let paceSupported = false;
+        if (exactPace) {
+          paceSupported = exactPace.avgScore >= HIGH_SCORE_THRESHOLD;
+        } else {
+          paceSupported = byPace.some(
+            (entry) =>
+              entry &&
+              PACE_ORDER[entry.key] !== undefined &&
+              Math.abs(PACE_ORDER[entry.key] - candPaceIdx) === 1 &&
+              Number.isFinite(entry.count) &&
+              entry.count > 0 &&
+              Number.isFinite(entry.avgScore) &&
+              entry.avgScore >= HIGH_SCORE_THRESHOLD
+          );
+        }
+        if (paceSupported) {
+          chips.push({
+            type: 'pace',
+            label: RECOMMENDATION_REASON_CHIPS.SIMILAR_PACE,
+          });
+        }
+      }
+
+      // 2. Similar accent with high comprehension
+      const byAccent = Array.isArray(profile.byAccent) ? profile.byAccent : [];
+      if (candidate.accent && candidate.accent !== 'unknown' && byAccent.length > 0) {
+        const accentEntry = byAccent.find(
+          (entry) =>
+            entry &&
+            entry.key === candidate.accent &&
+            Number.isFinite(entry.count) &&
+            entry.count > 0 &&
+            Number.isFinite(entry.avgScore)
+        );
+        if (accentEntry && accentEntry.avgScore >= HIGH_SCORE_THRESHOLD) {
+          chips.push({
+            type: 'accent',
+            label: RECOMMENDATION_REASON_CHIPS.SIMILAR_ACCENT,
+          });
+        }
+      }
+
+      // 3. Same topic with high comprehension
+      const byTopic = Array.isArray(profile.byTopic) ? profile.byTopic : [];
+      const candTopics = Array.isArray(candidate.topics) ? candidate.topics : [];
+      if (candTopics.length > 0 && byTopic.length > 0) {
+        const highTopicSet = new Set(
+          byTopic
+            .filter(
+              (entry) =>
+                entry &&
+                typeof entry.key === 'string' &&
+                Number.isFinite(entry.count) &&
+                entry.count > 0 &&
+                Number.isFinite(entry.avgScore) &&
+                entry.avgScore >= HIGH_SCORE_THRESHOLD
+            )
+            .map((entry) => entry.key)
+        );
+        if (candTopics.some((t) => highTopicSet.has(t))) {
+          chips.push({
+            type: 'topic',
+            label: RECOMMENDATION_REASON_CHIPS.SAME_TOPIC,
+          });
+        }
+      }
+    }
+
+    // 4. High comprehension recorded in actual Blind/Holdout tests for this speaker
+    const combinedTests = []
+      .concat(Array.isArray(ctx.testRecords) ? ctx.testRecords : [])
+      .concat(Array.isArray(ctx.predictionRecords) ? ctx.predictionRecords : [])
+      .concat(Array.isArray(ctx.experimentResults) ? ctx.experimentResults : []);
+
+    if (typeof candidate.id === 'string' && combinedTests.length > 0) {
+      let sum = 0;
+      let count = 0;
+      for (const rec of combinedTests) {
+        if (
+          rec &&
+          typeof rec === 'object' &&
+          rec.speakerId === candidate.id &&
+          typeof rec.actualScore === 'number' &&
+          Number.isFinite(rec.actualScore) &&
+          rec.actualScore >= 0 &&
+          rec.actualScore <= 1
+        ) {
+          sum += rec.actualScore;
+          count += 1;
+        }
+      }
+      if (count > 0 && sum / count >= HIGH_SCORE_THRESHOLD) {
+        chips.push({
+          type: 'actual_test',
+          label: RECOMMENDATION_REASON_CHIPS.HIGH_ACTUAL_TEST,
+        });
+      }
+    }
+
+    return chips;
   }
 
   /**
@@ -1359,6 +1499,7 @@
     EARPRINT_GATE_MESSAGE,
     ACOUSTIC_UNMEASURED_STATUS,
     UNMEASURED_ACOUSTIC_TRAITS,
+    RECOMMENDATION_REASON_CHIPS,
     formatAccent,
     formatPace,
     formatTopic,
@@ -1368,6 +1509,7 @@
     buildRecommendationReason,
     computeEarprintProfile,
     buildEarprintTraits,
+    classifyRecommendationReasons,
     recommendSpeakers,
     validateSpeakersData,
     predictScore,
