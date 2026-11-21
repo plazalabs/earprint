@@ -1198,6 +1198,135 @@ code {
   font-variant-numeric: tabular-nums;
 }
 
+/* Holdout Experiment Mode */
+.nav-btn-experiment {
+  grid-column: 1 / -1;
+}
+
+.calibration-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background-color: var(--surface);
+}
+
+.calibration-banner.is-locked {
+  border-color: var(--accent-border);
+  background-color: var(--accent-soft);
+}
+
+.calibration-banner-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.calibration-banner-text strong {
+  font-size: 0.84rem;
+  color: var(--ink);
+}
+
+.calibration-banner-text span {
+  font-size: 0.76rem;
+  color: var(--ink-secondary);
+}
+
+.calibration-banner .btn {
+  flex-shrink: 0;
+}
+
+.roster-name-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.role-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  border: 1px solid var(--border);
+  background-color: var(--surface-subtle);
+  color: var(--ink-muted);
+}
+
+.role-pill.is-holdout {
+  border-color: var(--amber-border);
+  background-color: var(--amber-soft);
+  color: var(--amber-text);
+}
+
+.exp-meta-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 10px 0;
+  font-size: 0.82rem;
+}
+
+.exp-status-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.exp-subnav {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.exp-subtab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background-color: var(--surface);
+  color: var(--ink-secondary);
+  font-size: 0.84rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.exp-subtab.is-active {
+  border-color: var(--accent);
+  background-color: var(--accent);
+  color: #ffffff;
+}
+
+.exp-subtab.is-active .nav-badge {
+  background-color: #ffffff;
+  color: var(--accent);
+}
+
+.calibration-checklist {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.exp-report-meta {
+  margin-top: 4px;
+  font-size: 0.78rem;
+  color: var(--ink-muted);
+  text-align: center;
+}
+
 /* Footer */
 .app-footer {
   border-top: 1px solid var(--border);
@@ -1230,6 +1359,10 @@ code {
 
 @media (min-width: 680px) {
   .step-nav {
-    grid-template-columns: repeat(6, 1fr);
+    grid-template-columns: repeat(4, 1fr);
+  }
+
+  .nav-btn-experiment {
+    grid-column: span 2;
   }
 }

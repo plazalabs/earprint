@@ -3,6 +3,7 @@
 
   const STORAGE_KEY = 'earprint_v1';
   const PREDICTION_STORAGE_KEY = 'earprint_prediction_v1';
+  const EXPERIMENT_STORAGE_KEY = 'earprint_experiment_v1';
   const DATA_URL = './data/speakers.json';
   const COMPREHENSION_URL = './data/comprehension.json';
   const Matching = window.EarprintMatching;
@@ -13,6 +14,9 @@
     ratings: {},
     predictionRecords: [],
     predictionSession: null,
+    experiment: null,
+    experimentLastReveal: null,
+    experimentSubView: 'blind',
     activeSpeakerId: null,
     activeTab: 'discover',
   };
@@ -22,6 +26,7 @@
     headerProgress: document.getElementById('header-progress'),
     badgeMatching: document.getElementById('badge-matching'),
     badgeReport: document.getElementById('badge-report'),
+    badgeExperiment: document.getElementById('badge-experiment'),
     navButtons: Array.from(document.querySelectorAll('.nav-btn')),
     panels: {
       discover: document.getElementById('panel-discover'),
@@ -30,7 +35,11 @@
       explorer: document.getElementById('panel-explorer'),
       predict: document.getElementById('panel-predict'),
       report: document.getElementById('panel-report'),
+      experiment: document.getElementById('panel-experiment'),
     },
+    discoverCalBanner: document.getElementById('discover-calibration-banner'),
+    discoverCalTitle: document.getElementById('discover-cal-title'),
+    discoverCalDesc: document.getElementById('discover-cal-desc'),
     speakerChannel: document.getElementById('speaker-channel'),
     speakerName: document.getElementById('speaker-name'),
     clipTitle: document.getElementById('clip-title'),
@@ -105,6 +114,64 @@
     reportTotalCount: document.getElementById('report-total-count'),
     reportHistoryList: document.getElementById('report-history-list'),
     btnResetPredictions: document.getElementById('btn-reset-predictions'),
+    expStatusSub: document.getElementById('exp-status-sub'),
+    expStatusTitle: document.getElementById('exp-status-title'),
+    expLockBadge: document.getElementById('exp-lock-badge'),
+    expMetaList: document.getElementById('exp-meta-list'),
+    expStatusNote: document.getElementById('exp-status-note'),
+    btnFreezeExperiment: document.getElementById('btn-freeze-experiment'),
+    btnResetExperiment: document.getElementById('btn-reset-experiment'),
+    expSubtabBlind: document.getElementById('exp-subtab-blind'),
+    expSubtabReport: document.getElementById('exp-subtab-report'),
+    expBlindBadge: document.getElementById('exp-blind-badge'),
+    expViewBlind: document.getElementById('exp-view-blind'),
+    expViewReport: document.getElementById('exp-view-report'),
+    expCalibrationCard: document.getElementById('exp-calibration-card'),
+    expCalibrationList: document.getElementById('exp-calibration-list'),
+    expBlindComplete: document.getElementById('exp-blind-complete'),
+    expBlindCard: document.getElementById('exp-blind-card'),
+    expBlindProgress: document.getElementById('exp-blind-progress'),
+    expBlindLabel: document.getElementById('exp-blind-label'),
+    expBlindVersionBadge: document.getElementById('exp-blind-version-badge'),
+    expYoutubePlayer: document.getElementById('exp-youtube-player'),
+    expSegmentNote: document.getElementById('exp-segment-note'),
+    expQuizBadge: document.getElementById('exp-quiz-badge'),
+    expBlindForm: document.getElementById('exp-blind-form'),
+    expQuizSection: document.getElementById('exp-quiz-section'),
+    expFeedback: document.getElementById('exp-feedback'),
+    expRevealCard: document.getElementById('exp-reveal-card'),
+    expRevealChannel: document.getElementById('exp-reveal-channel'),
+    expRevealName: document.getElementById('exp-reveal-name'),
+    expRevealClipTitle: document.getElementById('exp-reveal-clip-title'),
+    expRevealGroupBadge: document.getElementById('exp-reveal-group-badge'),
+    expRevealTags: document.getElementById('exp-reveal-tags'),
+    expRevealCompareTitle: document.getElementById('exp-reveal-compare-title'),
+    expRevealPredicted: document.getElementById('exp-reveal-predicted'),
+    expRevealActual: document.getElementById('exp-reveal-actual'),
+    expRevealError: document.getElementById('exp-reveal-error'),
+    expRevealBreakdown: document.getElementById('exp-reveal-breakdown'),
+    expRevealQuizBlock: document.getElementById('exp-reveal-quiz-block'),
+    expRevealSegmentInfo: document.getElementById('exp-reveal-segment-info'),
+    expRevealOriginalLink: document.getElementById('exp-reveal-original-link'),
+    btnNextExp: document.getElementById('btn-next-exp'),
+    btnExpGotoReport: document.getElementById('btn-exp-goto-report'),
+    expRepCompleted: document.getElementById('exp-rep-completed'),
+    expRepOverallActual: document.getElementById('exp-rep-overall-actual'),
+    expRepOverallMae: document.getElementById('exp-rep-overall-mae'),
+    expRepMeta: document.getElementById('exp-rep-meta'),
+    expRepRecCount: document.getElementById('exp-rep-rec-count'),
+    expRepRndCount: document.getElementById('exp-rep-rnd-count'),
+    expRepRecActual: document.getElementById('exp-rep-rec-actual'),
+    expRepRndActual: document.getElementById('exp-rep-rnd-actual'),
+    expRepRecQuiz: document.getElementById('exp-rep-rec-quiz'),
+    expRepRndQuiz: document.getElementById('exp-rep-rnd-quiz'),
+    expRepRecComp: document.getElementById('exp-rep-rec-comp'),
+    expRepRndComp: document.getElementById('exp-rep-rnd-comp'),
+    expRepRecPred: document.getElementById('exp-rep-rec-pred'),
+    expRepRndPred: document.getElementById('exp-rep-rnd-pred'),
+    expRepRecMae: document.getElementById('exp-rep-rec-mae'),
+    expRepRndMae: document.getElementById('exp-rep-rnd-mae'),
+    expRepSpeakerList: document.getElementById('exp-rep-speaker-list'),
   };
 
   function loadStoredRatings() {
@@ -161,6 +228,32 @@
     }
   }
 
+  function loadStoredExperiment() {
+    try {
+      const raw = window.localStorage.getItem(EXPERIMENT_STORAGE_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (Matching.isValidExperimentState(parsed)) {
+        return parsed;
+      }
+      return null;
+    } catch (_err) {
+      return null;
+    }
+  }
+
+  function saveStoredExperiment(experiment) {
+    try {
+      if (Matching.isValidExperimentState(experiment)) {
+        window.localStorage.setItem(EXPERIMENT_STORAGE_KEY, JSON.stringify(experiment));
+      } else {
+        window.localStorage.removeItem(EXPERIMENT_STORAGE_KEY);
+      }
+    } catch (_err) {
+      // Ignore storage quota or private-mode errors gracefully
+    }
+  }
+
   function createEl(tag, className, text) {
     const node = document.createElement(tag);
     if (className) node.className = className;
@@ -183,6 +276,8 @@
       renderPredictPanel(true);
     } else if (tabName === 'report') {
       renderReport();
+    } else if (tabName === 'experiment') {
+      renderExperimentPanel(true);
     }
     window.scrollTo({ top: 0, behavior: 'auto' });
   }
@@ -257,8 +352,12 @@
 
   function renderRoster() {
     els.speakerRoster.innerHTML = '';
+    const partition = Matching.partitionExperimentSpeakers(state.speakers, state.comprehensionMap);
+    const holdoutSet = new Set(partition.holdoutIds);
+
     state.speakers.forEach((speaker, idx) => {
       const rating = state.ratings[speaker.id] || null;
+      const isHoldout = holdoutSet.has(speaker.id);
       const btn = createEl('button', 'roster-item');
       btn.type = 'button';
       btn.setAttribute('role', 'listitem');
@@ -268,7 +367,16 @@
       }
 
       const info = createEl('span', 'roster-info');
-      info.appendChild(createEl('span', 'roster-name', `${idx + 1}. ${speaker.name}`));
+      const nameRow = createEl('span', 'roster-name-row');
+      nameRow.appendChild(createEl('span', 'roster-name', `${idx + 1}. ${speaker.name}`));
+      nameRow.appendChild(
+        createEl(
+          'span',
+          `role-pill ${isHoldout ? 'is-holdout' : 'is-calibration'}`,
+          isHoldout ? '홀드아웃' : '캘리브레이션'
+        )
+      );
+      info.appendChild(nameRow);
       info.appendChild(
         createEl(
           'span',
@@ -1117,6 +1225,613 @@
     }
   }
 
+  function formatIsoTimestamp(iso) {
+    if (!iso || typeof iso !== 'string') return '-';
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return iso;
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  }
+
+  function setExperimentSubView(viewName) {
+    state.experimentSubView = viewName === 'report' ? 'report' : 'blind';
+    const isBlind = state.experimentSubView === 'blind';
+    els.expSubtabBlind.classList.toggle('is-active', isBlind);
+    els.expSubtabBlind.setAttribute('aria-selected', String(isBlind));
+    els.expSubtabReport.classList.toggle('is-active', !isBlind);
+    els.expSubtabReport.setAttribute('aria-selected', String(!isBlind));
+    els.expViewBlind.classList.toggle('is-hidden', !isBlind);
+    els.expViewReport.classList.toggle('is-hidden', isBlind);
+    if (!isBlind) {
+      els.expYoutubePlayer.setAttribute('src', '');
+      renderExperimentReport();
+    } else if (state.activeTab === 'experiment') {
+      renderExperimentBlindView(true);
+    }
+  }
+
+  function renderDiscoverCalibrationBanner() {
+    const calStatus = Matching.getCalibrationStatus(
+      state.speakers,
+      state.ratings,
+      state.comprehensionMap
+    );
+    const isLocked = Matching.isValidExperimentState(state.experiment);
+    const completedHoldout = isLocked ? state.experiment.results.length : 0;
+    const totalHoldout = isLocked ? state.experiment.queue.length : calStatus.holdoutTotal;
+
+    els.badgeExperiment.textContent = `${completedHoldout}/${totalHoldout}`;
+    els.expBlindBadge.textContent = `${completedHoldout}/${totalHoldout}`;
+
+    if (isLocked) {
+      els.discoverCalBanner.classList.add('is-locked');
+      const versionLabel =
+        state.experiment.algorithmVersionLabel ||
+        `예측 모델 ${state.experiment.algorithmVersion}`;
+      els.discoverCalTitle.textContent = `Holdout 예측 고정 완료 (${versionLabel}) · Blind ${completedHoldout}/${totalHoldout}`;
+      els.discoverCalDesc.textContent =
+        '고정된 예측값은 이후 평가 변경으로 바뀌지 않습니다. 실험 탭에서 홀드아웃 4명 Blind 테스트를 진행하세요.';
+    } else if (calStatus.isComplete) {
+      els.discoverCalBanner.classList.remove('is-locked');
+      els.discoverCalTitle.textContent = `Holdout 캘리브레이션: ${calStatus.completedCount} / ${calStatus.total} 완료`;
+      els.discoverCalDesc.textContent =
+        '실험 탭에서 현재 캘리브레이션 기준으로 홀드아웃 4명의 예측을 고정할 수 있습니다.';
+    } else {
+      els.discoverCalBanner.classList.remove('is-locked');
+      els.discoverCalTitle.textContent = `Holdout 캘리브레이션: ${calStatus.completedCount} / ${calStatus.total}`;
+      els.discoverCalDesc.textContent =
+        '퀴즈가 없는 캘리브레이션 화자 8명을 모두 평가하면 홀드아웃 4명의 예측 점수가 자동 고정됩니다.';
+    }
+  }
+
+  function getNextExperimentQueueItem() {
+    if (!Matching.isValidExperimentState(state.experiment)) return null;
+    const completedIds = new Set(state.experiment.results.map((r) => r.speakerId));
+    for (let i = 0; i < state.experiment.queue.length; i += 1) {
+      const item = state.experiment.queue[i];
+      if (!completedIds.has(item.speakerId)) {
+        return { item, index: i };
+      }
+    }
+    return null;
+  }
+
+  function renderExperimentStatusCard() {
+    const calStatus = Matching.getCalibrationStatus(
+      state.speakers,
+      state.ratings,
+      state.comprehensionMap
+    );
+    const isLocked = Matching.isValidExperimentState(state.experiment);
+    els.expMetaList.innerHTML = '';
+
+    if (isLocked) {
+      const done = state.experiment.results.length;
+      const total = state.experiment.queue.length;
+      const versionLabel =
+        state.experiment.algorithmVersionLabel ||
+        `예측 모델 ${state.experiment.algorithmVersion}`;
+
+      els.expStatusTitle.textContent =
+        done >= total
+          ? `Holdout 실험 완료 (${done} / ${total})`
+          : `예측 고정 완료 · Blind 진행 ${done} / ${total}`;
+      els.expLockBadge.textContent = '예측 고정됨';
+      els.expLockBadge.classList.add('is-rated');
+      els.expStatusNote.textContent =
+        '고정된 예측 점수는 캘리브레이션 평가나 Earprint가 갱신되어도 변경되지 않습니다. 재실험은 아래 실험 초기화 후에만 가능합니다.';
+
+      const metaRows = [
+        ['알고리즘 버전', `${versionLabel} (${state.experiment.algorithmVersion})`],
+        ['예측 고정 시각', formatIsoTimestamp(state.experiment.frozenAt)],
+        ['홀드아웃 진행', `${done} / ${total}`],
+      ];
+      metaRows.forEach(([label, value]) => {
+        const row = createEl('div', 'breakdown-row');
+        row.appendChild(createEl('span', '', label));
+        row.appendChild(createEl('strong', '', value));
+        els.expMetaList.appendChild(row);
+      });
+
+      els.btnFreezeExperiment.classList.add('is-hidden');
+      els.btnResetExperiment.classList.remove('is-hidden');
+    } else if (calStatus.isComplete) {
+      els.expStatusTitle.textContent = `캘리브레이션 완료 (${calStatus.completedCount} / ${calStatus.total}) · 고정 대기`;
+      els.expLockBadge.textContent = '미고정';
+      els.expLockBadge.classList.remove('is-rated');
+      els.expStatusNote.textContent =
+        '캘리브레이션 화자 8명이 모두 평가되어 있습니다. 평가를 더 수정하거나 아래 버튼으로 홀드아웃 4명의 예측 점수를 고정하세요.';
+      els.btnFreezeExperiment.classList.remove('is-hidden');
+      els.btnResetExperiment.classList.add('is-hidden');
+    } else {
+      els.expStatusTitle.textContent = `캘리브레이션 진행 중 (${calStatus.completedCount} / ${calStatus.total})`;
+      els.expLockBadge.textContent = '미고정';
+      els.expLockBadge.classList.remove('is-rated');
+      els.expStatusNote.textContent =
+        '퀴즈가 없는 캘리브레이션 화자 8명을 발견·평가 탭에서 모두 평가하면 홀드아웃 4명의 예측 점수가 자동 고정됩니다.';
+      els.btnFreezeExperiment.classList.add('is-hidden');
+      els.btnResetExperiment.classList.add('is-hidden');
+    }
+  }
+
+  function renderExperimentQuiz(compItem) {
+    els.expQuizSection.innerHTML = '';
+    if (!compItem || compItem.quizAvailable !== true) {
+      els.expQuizBadge.textContent = '객관식 문항 미제공';
+      return;
+    }
+
+    els.expQuizBadge.textContent = `객관식 이해도 문항 ${compItem.questions.length}개`;
+    compItem.questions.forEach((question, qIdx) => {
+      const box = createEl('div', 'quiz-question');
+      box.appendChild(createEl('p', 'quiz-prompt', `Q${qIdx + 1}. ${question.prompt}`));
+
+      const choicesWrap = createEl('div', 'quiz-choices');
+      choicesWrap.setAttribute('role', 'radiogroup');
+      choicesWrap.setAttribute('aria-label', `Holdout 객관식 문제 ${qIdx + 1}`);
+
+      question.choices.forEach((choiceText, cIdx) => {
+        const label = createEl('label', 'quiz-choice');
+        const input = document.createElement('input');
+        input.type = 'radio';
+        input.name = `exp_q_${qIdx}`;
+        input.value = String(cIdx);
+        label.appendChild(input);
+        label.appendChild(createEl('span', '', choiceText));
+        choicesWrap.appendChild(label);
+      });
+
+      box.appendChild(choicesWrap);
+      els.expQuizSection.appendChild(box);
+    });
+  }
+
+  function renderExperimentReveal(revealData) {
+    const { speaker, compItem, record, quizResult } = revealData;
+    const groupText = record.group === 'recommended' ? '추천' : '무작위';
+    const versionLabel =
+      (state.experiment && state.experiment.algorithmVersionLabel) ||
+      Matching.ALGORITHM_VERSION_LABEL;
+
+    els.expCalibrationCard.classList.add('is-hidden');
+    els.expBlindComplete.classList.add('is-hidden');
+    els.expBlindCard.classList.add('is-hidden');
+    els.expYoutubePlayer.setAttribute('src', '');
+    els.expRevealCard.classList.remove('is-hidden');
+
+    els.expRevealChannel.textContent = `채널: ${speaker.channel}`;
+    els.expRevealName.textContent = speaker.name;
+    els.expRevealClipTitle.textContent = speaker.clip.title;
+    els.expRevealGroupBadge.textContent = `배정 집단: ${groupText}`;
+
+    els.expRevealTags.innerHTML = '';
+    els.expRevealTags.appendChild(
+      createEl('span', 'tag', `악센트: ${Matching.formatAccent(speaker.accent)}`)
+    );
+    els.expRevealTags.appendChild(
+      createEl('span', 'tag tag-estimated', `속도: ${speaker.paceLabel}`)
+    );
+    speaker.topics.forEach((topic) => {
+      els.expRevealTags.appendChild(createEl('span', 'tag', `#${Matching.formatTopic(topic)}`));
+    });
+
+    els.expRevealCompareTitle.textContent = `고정 예측 (${versionLabel}) vs 실제 대조`;
+    const err = Matching.computePredictionError(record.predictedScore, record.actualScore);
+    els.expRevealPredicted.textContent = err ? `${err.predictedScorePct}%` : '-';
+    els.expRevealActual.textContent = err ? `${err.actualScorePct}%` : '-';
+    els.expRevealError.textContent = err ? `${err.absErrorPct}%p` : '-';
+
+    els.expRevealBreakdown.innerHTML = '';
+    const rows = [
+      [
+        '객관식 정답률',
+        quizResult
+          ? `${quizResult.correctCount} / ${quizResult.totalQuestions} (${quizResult.accuracyPct}%)`
+          : '-',
+      ],
+      [
+        '주관 평가',
+        `${Matching.CLARITY_LABELS[record.rating.clarity] || record.rating.clarity} · 이해도 ${record.rating.comprehension}/5 (${Math.round(record.subjectiveScore * 100)}%)`,
+      ],
+      [
+        '부호 오차 (예측 − 실제)',
+        err ? `${err.signedErrorPct > 0 ? '+' : ''}${err.signedErrorPct}%p` : '-',
+      ],
+      ['예측 고정 시각', formatIsoTimestamp(record.frozenAt)],
+    ];
+    rows.forEach(([label, val]) => {
+      const row = createEl('div', 'breakdown-row');
+      row.appendChild(createEl('span', '', label));
+      row.appendChild(createEl('strong', '', val));
+      els.expRevealBreakdown.appendChild(row);
+    });
+
+    els.expRevealQuizBlock.innerHTML = '';
+    if (compItem && compItem.quizAvailable && quizResult) {
+      els.expRevealQuizBlock.classList.remove('is-hidden');
+      els.expRevealQuizBlock.appendChild(createEl('h4', 'subcard-title', '객관식 채점 및 근거 발췌'));
+
+      compItem.questions.forEach((question, qIdx) => {
+        const isCorrect = quizResult.itemResults[qIdx];
+        const selectedIdx = record.quizSelectedIndices[qIdx];
+        const itemEl = createEl('div', `reveal-q-item ${isCorrect ? 'is-correct' : 'is-wrong'}`);
+        itemEl.appendChild(
+          createEl(
+            'div',
+            'reveal-q-head',
+            `Q${qIdx + 1}. ${isCorrect ? '정답' : '오답'} — ${question.prompt}`
+          )
+        );
+        itemEl.appendChild(createEl('div', '', `내 선택: ${question.choices[selectedIdx]}`));
+        if (!isCorrect) {
+          itemEl.appendChild(createEl('div', '', `정답: ${question.choices[question.answerIndex]}`));
+        }
+        els.expRevealQuizBlock.appendChild(itemEl);
+      });
+
+      const excerptBox = createEl('div', 'excerpt-box');
+      excerptBox.appendChild(
+        createEl(
+          'p',
+          '',
+          `근거 발췌 (${compItem.verifiedTimestampRange || `${compItem.startSeconds}~${compItem.endSeconds}초`}): ${compItem.sourceExcerpt}`
+        )
+      );
+      els.expRevealQuizBlock.appendChild(excerptBox);
+    } else {
+      els.expRevealQuizBlock.classList.add('is-hidden');
+    }
+
+    const startSec = compItem ? compItem.startSeconds : speaker.clip.startSeconds;
+    const endSec = compItem ? compItem.endSeconds : speaker.clip.startSeconds + 50;
+    els.expRevealSegmentInfo.textContent = `지정 구간: ${startSec}초 ~ ${endSec}초 (${endSec - startSec}초)`;
+    els.expRevealOriginalLink.setAttribute('href', buildWatchUrl(speaker.clip));
+
+    const hasNext = Boolean(getNextExperimentQueueItem());
+    els.btnNextExp.textContent = hasNext ? '다음 Holdout 화자 →' : '실험 완료 확인 →';
+  }
+
+  function renderExperimentBlindView(allowIframeLoad) {
+    const isLocked = Matching.isValidExperimentState(state.experiment);
+
+    if (!isLocked) {
+      els.expBlindCard.classList.add('is-hidden');
+      els.expRevealCard.classList.add('is-hidden');
+      els.expBlindComplete.classList.add('is-hidden');
+      els.expYoutubePlayer.setAttribute('src', '');
+      els.expCalibrationCard.classList.remove('is-hidden');
+
+      const partition = Matching.partitionExperimentSpeakers(
+        state.speakers,
+        state.comprehensionMap
+      );
+      els.expCalibrationList.innerHTML = '';
+      partition.calibration.forEach((speaker, idx) => {
+        const rating = state.ratings[speaker.id] || null;
+        const btn = createEl('button', 'roster-item');
+        btn.type = 'button';
+
+        const info = createEl('span', 'roster-info');
+        info.appendChild(createEl('span', 'roster-name', `${idx + 1}. ${speaker.name}`));
+        info.appendChild(
+          createEl(
+            'span',
+            'roster-sub',
+            `${Matching.formatAccent(speaker.accent)} · 속도 ${speaker.paceLabel}`
+          )
+        );
+        btn.appendChild(info);
+
+        let badgeClass = 'roster-badge';
+        let badgeText = '미평가';
+        if (rating) {
+          badgeClass += ` is-${rating.clarity}`;
+          badgeText = `${Matching.CLARITY_LABELS[rating.clarity]} ${rating.comprehension}/5`;
+        }
+        btn.appendChild(createEl('span', badgeClass, badgeText));
+
+        btn.addEventListener('click', function () {
+          selectSpeaker(speaker.id, true);
+          setActiveTab('discover');
+        });
+
+        els.expCalibrationList.appendChild(btn);
+      });
+      return;
+    }
+
+    els.expCalibrationCard.classList.add('is-hidden');
+
+    if (state.experimentLastReveal) {
+      renderExperimentReveal(state.experimentLastReveal);
+      return;
+    }
+
+    const nextEntry = getNextExperimentQueueItem();
+    if (!nextEntry) {
+      els.expBlindCard.classList.add('is-hidden');
+      els.expRevealCard.classList.add('is-hidden');
+      els.expYoutubePlayer.setAttribute('src', '');
+      els.expBlindComplete.innerHTML = '';
+      els.expBlindComplete.classList.remove('is-hidden');
+      els.expBlindComplete.appendChild(
+        createEl(
+          'p',
+          '',
+          `홀드아웃 화자 ${state.experiment.queue.length}명의 Blind 실험을 모두 완료했습니다.`
+        )
+      );
+      const reportBtn = createEl('button', 'btn btn-primary btn-sm', '실험 리포트 보기 →');
+      reportBtn.type = 'button';
+      reportBtn.addEventListener('click', function () {
+        setExperimentSubView('report');
+      });
+      els.expBlindComplete.appendChild(reportBtn);
+      return;
+    }
+
+    const { item, index } = nextEntry;
+    const speaker = state.speakers.find((s) => s.id === item.speakerId);
+    if (!speaker) return;
+    const compItem = state.comprehensionMap[speaker.id] || null;
+    const startSec = compItem ? compItem.startSeconds : speaker.clip.startSeconds;
+    const endSec = compItem ? compItem.endSeconds : speaker.clip.startSeconds + 50;
+    const durationSec = endSec - startSec;
+    const versionLabel =
+      state.experiment.algorithmVersionLabel || Matching.ALGORITHM_VERSION_LABEL;
+
+    els.expBlindComplete.classList.add('is-hidden');
+    els.expRevealCard.classList.add('is-hidden');
+    els.expBlindCard.classList.remove('is-hidden');
+
+    const seqNum = index + 1;
+    els.expBlindProgress.textContent = `Holdout Blind ${seqNum} / ${state.experiment.queue.length}`;
+    els.expBlindLabel.textContent = `Holdout 화자 #${seqNum}`;
+    els.expBlindVersionBadge.textContent = `${versionLabel} 고정됨`;
+    els.expSegmentNote.textContent = `지정 구간: ${startSec}초 ~ ${endSec}초 (${durationSec}초)`;
+
+    if (allowIframeLoad || (state.activeTab === 'experiment' && state.experimentSubView === 'blind')) {
+      const targetSrc = buildSegmentEmbedUrl(speaker.clip.videoId, startSec, endSec);
+      if (els.expYoutubePlayer.getAttribute('src') !== targetSrc) {
+        els.expYoutubePlayer.setAttribute('src', targetSrc);
+        els.expYoutubePlayer.setAttribute('title', `Holdout Blind 실험 클립 #${seqNum}`);
+      }
+    }
+
+    els.expBlindForm.reset();
+    els.expFeedback.textContent = '';
+    els.expFeedback.classList.remove('is-error');
+    renderExperimentQuiz(compItem);
+  }
+
+  function renderExperimentReport() {
+    const summary = Matching.summarizeExperimentReport(state.experiment, state.speakers);
+    const rec = summary.recommended;
+    const rnd = summary.random;
+    const overall = summary.overall;
+
+    els.expRepCompleted.textContent = `${summary.completedCount} / ${summary.totalHoldoutCount}`;
+    els.expRepOverallActual.textContent = formatMetricPct(overall.avgActualScorePct);
+    els.expRepOverallMae.textContent = formatMetricPctPoints(overall.avgAbsErrorPct);
+
+    els.expRepMeta.innerHTML = '';
+    if (summary.locked) {
+      els.expRepMeta.appendChild(
+        createEl(
+          'span',
+          'meta-note',
+          `${summary.algorithmVersionLabel} · 고정 시각: ${formatIsoTimestamp(summary.frozenAt)}`
+        )
+      );
+    } else {
+      els.expRepMeta.appendChild(
+        createEl('span', 'meta-note', '예측 미고정 상태 (표본 0건)')
+      );
+    }
+
+    els.expRepRecCount.textContent = String(rec.count);
+    els.expRepRndCount.textContent = String(rnd.count);
+
+    els.expRepRecActual.textContent = formatMetricPct(rec.avgActualScorePct);
+    els.expRepRndActual.textContent = formatMetricPct(rnd.avgActualScorePct);
+
+    els.expRepRecQuiz.textContent =
+      rec.quizSampleCount > 0 ? `${rec.avgQuizAccuracyPct}% (N=${rec.quizSampleCount})` : '-';
+    els.expRepRndQuiz.textContent =
+      rnd.quizSampleCount > 0 ? `${rnd.avgQuizAccuracyPct}% (N=${rnd.quizSampleCount})` : '-';
+
+    els.expRepRecComp.textContent =
+      rec.avgSubjectiveComprehension !== null ? String(rec.avgSubjectiveComprehension) : '-';
+    els.expRepRndComp.textContent =
+      rnd.avgSubjectiveComprehension !== null ? String(rnd.avgSubjectiveComprehension) : '-';
+
+    els.expRepRecPred.textContent = formatMetricPct(rec.avgPredictedScorePct);
+    els.expRepRndPred.textContent = formatMetricPct(rnd.avgPredictedScorePct);
+
+    els.expRepRecMae.textContent = formatMetricPctPoints(rec.avgAbsErrorPct);
+    els.expRepRndMae.textContent = formatMetricPctPoints(rnd.avgAbsErrorPct);
+
+    els.expRepSpeakerList.innerHTML = '';
+    if (!summary.locked || summary.bySpeaker.length === 0) {
+      els.expRepSpeakerList.appendChild(
+        createEl(
+          'div',
+          'empty-state',
+          '캘리브레이션 8명 평가 완료 후 예측이 고정되면 홀드아웃 4명의 기록이 여기에 표시됩니다.'
+        )
+      );
+      return;
+    }
+
+    summary.bySpeaker.forEach((row) => {
+      const card = createEl('div', 'history-item');
+      const head = createEl('div', 'history-item-head');
+      if (!row.completed) {
+        head.appendChild(
+          createEl('span', 'history-speaker', `Holdout 화자 #${row.queueIndex + 1}`)
+        );
+        head.appendChild(createEl('span', 'group-pill', '미테스트 (Blind 비공개)'));
+        card.appendChild(head);
+        card.appendChild(
+          createEl(
+            'div',
+            'history-metrics',
+            '제출 전까지 화자명·배정 집단·고정 예측 점수가 비공개로 유지됩니다.'
+          )
+        );
+      } else {
+        const groupLabel = row.group === 'recommended' ? '추천군' : '무작위군';
+        head.appendChild(createEl('span', 'history-speaker', row.speakerName));
+        head.appendChild(
+          createEl(
+            'span',
+            `group-pill ${row.group === 'recommended' ? 'is-recommended' : ''}`,
+            groupLabel
+          )
+        );
+        card.appendChild(head);
+
+        const quizText =
+          row.quizAccuracyPct !== null
+            ? `객관식 ${row.quizCorrectCount}/${row.quizTotalQuestions} (${row.quizAccuracyPct}%)`
+            : '객관식 -';
+        const subjText = row.rating
+          ? `주관 ${Matching.CLARITY_LABELS[row.rating.clarity] || row.rating.clarity} ${row.rating.comprehension}/5 (${row.subjectiveScorePct}%)`
+          : '주관 -';
+        card.appendChild(
+          createEl(
+            'div',
+            'history-metrics',
+            `고정 예측 ${row.predictedScorePct}% · 실제 종합 ${row.actualScorePct}% · 오차 ${row.absErrorPct}%p`
+          )
+        );
+        card.appendChild(
+          createEl('div', 'history-metrics', `${quizText} · ${subjText}`)
+        );
+      }
+      els.expRepSpeakerList.appendChild(card);
+    });
+  }
+
+  function renderExperimentPanel(allowIframeLoad) {
+    renderDiscoverCalibrationBanner();
+    renderExperimentStatusCard();
+    renderExperimentReport();
+    if (state.experimentSubView === 'blind') {
+      renderExperimentBlindView(Boolean(allowIframeLoad));
+    }
+  }
+
+  function handleFreezeExperiment() {
+    if (Matching.isValidExperimentState(state.experiment)) return;
+    const res = Matching.freezeHoldoutPredictions(
+      state.experiment,
+      state.speakers,
+      state.ratings,
+      { comprehensionMap: state.comprehensionMap }
+    );
+    if (res.status === 'frozen' && res.experiment) {
+      state.experiment = res.experiment;
+      state.experimentLastReveal = null;
+      saveStoredExperiment(state.experiment);
+      setExperimentSubView('blind');
+      renderExperimentPanel(true);
+    }
+  }
+
+  function handleResetExperiment() {
+    state.experiment = Matching.resetExperiment();
+    state.experimentLastReveal = null;
+    saveStoredExperiment(null);
+    els.expYoutubePlayer.setAttribute('src', '');
+    setExperimentSubView('blind');
+    renderExperimentPanel(false);
+    const profile = Matching.computeEarprintProfile(state.speakers, state.ratings);
+    const matchResult = Matching.recommendSpeakers(state.speakers, state.ratings, { limit: 3 });
+    renderRecommendations(matchResult, profile);
+  }
+
+  function handleExperimentSubmit(event) {
+    event.preventDefault();
+    if (!Matching.isValidExperimentState(state.experiment)) return;
+    const nextEntry = getNextExperimentQueueItem();
+    if (!nextEntry) return;
+
+    const speaker = state.speakers.find((s) => s.id === nextEntry.item.speakerId);
+    if (!speaker) return;
+    const compItem = state.comprehensionMap[speaker.id] || null;
+
+    const clarityEl = els.expBlindForm.querySelector('input[name="exp_clarity"]:checked');
+    const compEl = els.expBlindForm.querySelector('input[name="exp_comprehension"]:checked');
+
+    if (!clarityEl || !compEl) {
+      els.expFeedback.textContent = '주관 청취 명확도와 이해도(1~5)를 모두 선택해 주세요.';
+      els.expFeedback.classList.add('is-error');
+      return;
+    }
+
+    let quizResult = null;
+    const selectedIndices = [];
+    if (compItem && compItem.quizAvailable) {
+      for (let qIdx = 0; qIdx < compItem.questions.length; qIdx += 1) {
+        const checked = els.expBlindForm.querySelector(`input[name="exp_q_${qIdx}"]:checked`);
+        if (!checked) {
+          els.expFeedback.textContent = `객관식 문제 Q${qIdx + 1}의 답안을 선택해 주세요.`;
+          els.expFeedback.classList.add('is-error');
+          return;
+        }
+        selectedIndices.push(Number(checked.value));
+      }
+      quizResult = Matching.gradeQuiz(compItem.questions, selectedIndices);
+      if (!quizResult) {
+        els.expFeedback.textContent = '객관식 답안 채점에 실패했습니다. 다시 선택해 주세요.';
+        els.expFeedback.classList.add('is-error');
+        return;
+      }
+    }
+
+    const rating = {
+      clarity: clarityEl.value,
+      comprehension: Number(compEl.value),
+    };
+    const res = Matching.recordHoldoutResult(state.experiment, {
+      speakerId: speaker.id,
+      rating,
+      quizResult,
+      quizSelectedIndices: selectedIndices,
+      submittedAt: new Date().toISOString(),
+    });
+    if (!res.ok) {
+      els.expFeedback.textContent = '실험 결과 기록 중 유효하지 않은 값이 감지되었습니다.';
+      els.expFeedback.classList.add('is-error');
+      return;
+    }
+
+    state.experiment = res.experiment;
+    saveStoredExperiment(state.experiment);
+    state.experimentLastReveal = {
+      speaker,
+      compItem,
+      record: res.record,
+      quizResult,
+    };
+
+    els.expFeedback.textContent = '';
+    els.expFeedback.classList.remove('is-error');
+
+    renderExperimentPanel(false);
+    const profile = Matching.computeEarprintProfile(state.speakers, state.ratings);
+    const matchResult = Matching.recommendSpeakers(state.speakers, state.ratings, { limit: 3 });
+    renderRecommendations(matchResult, profile);
+    window.scrollTo({ top: 0, behavior: 'auto' });
+  }
+
+  function handleNextExperiment() {
+    state.experimentLastReveal = null;
+    renderExperimentPanel(true);
+    window.scrollTo({ top: 0, behavior: 'auto' });
+  }
+
   function renderAll(reloadIframe) {
     renderActiveSpeaker(Boolean(reloadIframe));
     renderRoster();
@@ -1126,8 +1841,13 @@
     renderRecommendations(matchResult, profile);
     renderExplorer(matchResult);
     renderReport();
+    renderDiscoverCalibrationBanner();
+    renderExperimentStatusCard();
+    renderExperimentReport();
     if (state.activeTab === 'predict') {
       renderPredictPanel(false);
+    } else if (state.activeTab === 'experiment') {
+      renderExperimentPanel(false);
     }
   }
 
@@ -1190,8 +1910,24 @@
     // Refresh pending Blind session queue on next visit so predictions reflect updated Earprint
     state.predictionSession = null;
 
+    // Auto-freeze Holdout predictions once all 8 calibration speakers are evaluated (only if not already locked)
+    let freezeNotice = '';
+    if (!Matching.isValidExperimentState(state.experiment)) {
+      const freezeRes = Matching.freezeHoldoutPredictions(
+        state.experiment,
+        state.speakers,
+        state.ratings,
+        { comprehensionMap: state.comprehensionMap }
+      );
+      if (freezeRes.status === 'frozen' && freezeRes.experiment) {
+        state.experiment = freezeRes.experiment;
+        saveStoredExperiment(state.experiment);
+        freezeNotice = ` · Holdout 4명 예측이 고정되었습니다 (${state.experiment.algorithmVersionLabel}).`;
+      }
+    }
+
     els.formFeedback.classList.remove('is-error');
-    els.formFeedback.textContent = `${speaker.name} 평가가 저장되었습니다 (${Matching.CLARITY_LABELS[clarity]}, 이해도 ${comprehension}/5).`;
+    els.formFeedback.textContent = `${speaker.name} 평가가 저장되었습니다 (${Matching.CLARITY_LABELS[clarity]}, 이해도 ${comprehension}/5)${freezeNotice}`;
     renderAll(false);
   }
 
@@ -1228,12 +1964,27 @@
     els.predictForm.addEventListener('submit', handlePredictSubmit);
     els.btnNextPredict.addEventListener('click', handleNextPredict);
     els.btnResetPredictions.addEventListener('click', handleResetPredictions);
+
+    els.expSubtabBlind.addEventListener('click', function () {
+      setExperimentSubView('blind');
+    });
+    els.expSubtabReport.addEventListener('click', function () {
+      setExperimentSubView('report');
+    });
+    els.btnFreezeExperiment.addEventListener('click', handleFreezeExperiment);
+    els.btnResetExperiment.addEventListener('click', handleResetExperiment);
+    els.expBlindForm.addEventListener('submit', handleExperimentSubmit);
+    els.btnNextExp.addEventListener('click', handleNextExperiment);
+    els.btnExpGotoReport.addEventListener('click', function () {
+      setExperimentSubView('report');
+    });
   }
 
   async function init() {
     bindEvents();
     state.ratings = loadStoredRatings();
     state.predictionRecords = loadStoredPredictions();
+    state.experiment = loadStoredExperiment();
 
     try {
       const [speakersRes, compRes] = await Promise.all([

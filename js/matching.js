@@ -94,6 +94,14 @@
     HIGH_ACTUAL_TEST: '실제 테스트에서 높은 이해도를 기록',
   });
 
+  const EXPERIMENT_STORAGE_KEY = 'earprint_experiment_v1';
+  const HOLDOUT_SPEAKER_IDS = Object.freeze([
+    'ken-robinson',
+    'julian-treasure',
+    'celeste-headlee',
+    'tim-urban',
+  ]);
+
   function formatAccent(accent) {
     return ACCENT_LABELS[accent] || accent || ACCENT_LABELS.unknown;
   }
@@ -1482,6 +1490,474 @@
     };
   }
 
+  /**
+   * Partitions speakers into calibration (8 non-quiz speakers) and holdout (4 quiz speakers).
+   */
+  function partitionExperimentSpeakers(speakers, comprehensionMap) {
+    const list = Array.isArray(speakers) ? speakers : [];
+    const compMap = comprehensionMap && typeof comprehensionMap === 'object' ? comprehensionMap : null;
+    const defaultHoldoutSet = new Set(HOLDOUT_SPEAKER_IDS);
+
+    const calibration = [];
+    const holdout = [];
+
+    for (const speaker of list) {
+      if (!speaker || typeof speaker.id !== 'string') continue;
+      const isHoldout = compMap
+        ? Boolean(compMap[speaker.id] && compMap[speaker.id].quizAvailable === true)
+        : defaultHoldoutSet.has(speaker.id);
+      if (isHoldout) {
+        holdout.push(speaker);
+      } else {
+        calibration.push(speaker);
+      }
+    }
+
+    return {
+      calibration,
+      holdout,
+      calibrationIds: calibration.map((s) => s.id),
+      holdoutIds: holdout.map((s) => s.id),
+    };
+  }
+
+  /**
+   * Computes calibration progress across the 8 non-quiz calibration speakers.
+   */
+  function getCalibrationStatus(speakers, ratingsMap, comprehensionMap) {
+    const ratings = ratingsMap && typeof ratingsMap === 'object' ? ratingsMap : {};
+    const { calibration, holdout } = partitionExperimentSpeakers(speakers, comprehensionMap);
+    const completedSpeakerIds = [];
+    const remainingSpeakerIds = [];
+
+    for (const speaker of calibration) {
+      if (scoreEvaluation(ratings[speaker.id]) !== null) {
+        completedSpeakerIds.push(speaker.id);
+      } else {
+        remainingSpeakerIds.push(speaker.id);
+      }
+    }
+
+    return {
+      total: calibration.length,
+      holdoutTotal: holdout.length,
+      completedCount: completedSpeakerIds.length,
+      completedSpeakerIds,
+      remainingSpeakerIds,
+      isComplete: calibration.length > 0 && remainingSpeakerIds.length === 0,
+    };
+  }
+
+  /**
+   * Validates persisted or in-memory Holdout experiment state structure.
+   */
+  function isValidExperimentState(experiment) {
+    if (!experiment || typeof experiment !== 'object') return false;
+    if (experiment.locked !== true) return false;
+    if (typeof experiment.algorithmVersion !== 'string' || experiment.algorithmVersion.trim() === '') {
+      return false;
+    }
+    if (typeof experiment.frozenAt !== 'string' || experiment.frozenAt.trim() === '') {
+      return false;
+    }
+    if (!experiment.predictions || typeof experiment.predictions !== 'object') return false;
+    if (!Array.isArray(experiment.queue) || experiment.queue.length === 0) return false;
+    if (!Array.isArray(experiment.results)) return false;
+
+    for (const item of experiment.queue) {
+      if (!item || typeof item !== 'object' || typeof item.speakerId !== 'string') return false;
+      if (item.group !== 'recommended' && item.group !== 'random') return false;
+      if (
+        typeof item.predictedScore !== 'number' ||
+        !Number.isFinite(item.predictedScore) ||
+        item.predictedScore < 0 ||
+        item.predictedScore > 1
+      ) {
+        return false;
+      }
+      const predEntry = experiment.predictions[item.speakerId];
+      if (!predEntry || predEntry.predictedScore !== item.predictedScore) return false;
+    }
+
+    return true;
+  }
+
+  function cloneExperimentState(experiment) {
+    const predictionsCopy = {};
+    Object.keys(experiment.predictions).forEach((key) => {
+      predictionsCopy[key] = { ...experiment.predictions[key] };
+    });
+    return {
+      ...experiment,
+      calibrationSpeakerIds: Array.isArray(experiment.calibrationSpeakerIds)
+        ? experiment.calibrationSpeakerIds.slice()
+        : [],
+      holdoutSpeakerIds: Array.isArray(experiment.holdoutSpeakerIds)
+        ? experiment.holdoutSpeakerIds.slice()
+        : [],
+      calibrationSummary: experiment.calibrationSummary
+        ? { ...experiment.calibrationSummary }
+        : null,
+      predictions: predictionsCopy,
+      queue: experiment.queue.map((q) => ({ ...q })),
+      results: experiment.results.map((r) => ({
+        ...r,
+        rating: r.rating ? { ...r.rating } : null,
+        quizSelectedIndices: Array.isArray(r.quizSelectedIndices)
+          ? r.quizSelectedIndices.slice()
+          : [],
+      })),
+    };
+  }
+
+  /**
+   * Freezes predictScore for all 4 holdout speakers once all 8 calibration speakers are rated.
+   * Immutability contract: if existingExperiment is already locked, returns it completely unchanged
+   * regardless of any subsequent changes to ratingsMap or Earprint profile.
+   */
+  function freezeHoldoutPredictions(existingExperiment, speakers, ratingsMap, options) {
+    if (isValidExperimentState(existingExperiment)) {
+      return {
+        status: 'already_locked',
+        changed: false,
+        experiment: cloneExperimentState(existingExperiment),
+      };
+    }
+
+    const opts = options && typeof options === 'object' ? options : {};
+    const compMap =
+      opts.comprehensionMap && typeof opts.comprehensionMap === 'object'
+        ? opts.comprehensionMap
+        : null;
+    const rng = typeof opts.rng === 'function' ? opts.rng : Math.random;
+    const startGroup = opts.startGroup === 'random' ? 'random' : 'recommended';
+
+    const partition = partitionExperimentSpeakers(speakers, compMap);
+    const calStatus = getCalibrationStatus(speakers, ratingsMap, compMap);
+
+    if (!calStatus.isComplete || partition.holdout.length === 0) {
+      return {
+        status: 'calibration_incomplete',
+        changed: false,
+        experiment: null,
+        calibration: calStatus,
+      };
+    }
+
+    // Build calibration-only ratings map to prevent holdout leakage
+    const ratings = ratingsMap && typeof ratingsMap === 'object' ? ratingsMap : {};
+    const calibrationRatings = {};
+    for (const calSpeaker of partition.calibration) {
+      if (scoreEvaluation(ratings[calSpeaker.id]) !== null) {
+        calibrationRatings[calSpeaker.id] = ratings[calSpeaker.id];
+      }
+    }
+
+    const calibrationProfile = computeEarprintProfile(speakers, calibrationRatings);
+    const holdoutMap = new Map(partition.holdout.map((s) => [s.id, s]));
+    const recResult = recommendSpeakers(speakers, calibrationRatings, {
+      limit: Array.isArray(speakers) ? speakers.length : 12,
+    });
+    const rankedHoldout = recResult.recommendations.filter((rec) =>
+      holdoutMap.has(rec.speaker.id)
+    );
+    const recScoreById = new Map(
+      rankedHoldout.map((rec) => [rec.speaker.id, rec.matchScore])
+    );
+
+    const remainingIds = new Set(partition.holdoutIds);
+    const queue = [];
+    const predictions = {};
+    let currentGroup = startGroup;
+
+    while (remainingIds.size > 0) {
+      let chosenSpeaker = null;
+      if (currentGroup === 'recommended') {
+        const topRec = rankedHoldout.find((rec) => remainingIds.has(rec.speaker.id));
+        chosenSpeaker = topRec
+          ? topRec.speaker
+          : holdoutMap.get(Array.from(remainingIds)[0]);
+      } else {
+        const pool = Array.from(remainingIds);
+        const rawRand = Number(rng());
+        const safeRand = Number.isFinite(rawRand)
+          ? Math.min(Math.max(rawRand, 0), 0.999999999999)
+          : 0;
+        const pickIndex = Math.floor(safeRand * pool.length);
+        chosenSpeaker = holdoutMap.get(pool[pickIndex]);
+      }
+
+      if (!chosenSpeaker) break;
+      remainingIds.delete(chosenSpeaker.id);
+
+      const predScore = predictScore(calibrationProfile, chosenSpeaker);
+      const safePred = predScore === null ? 0.5 : predScore;
+      const entry = {
+        speakerId: chosenSpeaker.id,
+        group: currentGroup,
+        predictedScore: safePred,
+        predictedScorePct: Math.round(safePred * 100),
+        matchScore: recScoreById.has(chosenSpeaker.id)
+          ? recScoreById.get(chosenSpeaker.id)
+          : null,
+      };
+      predictions[chosenSpeaker.id] = {
+        ...entry,
+        queueOrder: queue.length,
+      };
+      queue.push(entry);
+
+      currentGroup = currentGroup === 'recommended' ? 'random' : 'recommended';
+    }
+
+    const algorithmVersion =
+      typeof opts.algorithmVersion === 'string' && opts.algorithmVersion.trim() !== ''
+        ? opts.algorithmVersion
+        : ALGORITHM_VERSION;
+    const algorithmVersionLabel =
+      typeof opts.algorithmVersionLabel === 'string' && opts.algorithmVersionLabel.trim() !== ''
+        ? opts.algorithmVersionLabel
+        : `예측 모델 ${algorithmVersion}`;
+    const frozenAt =
+      typeof opts.now === 'string' && opts.now.trim() !== ''
+        ? opts.now
+        : new Date().toISOString();
+
+    const experiment = {
+      version: 1,
+      locked: true,
+      algorithmVersion,
+      algorithmVersionLabel,
+      frozenAt,
+      calibrationSpeakerIds: partition.calibrationIds,
+      holdoutSpeakerIds: partition.holdoutIds,
+      calibrationSummary: {
+        evaluatedCount: calibrationProfile.evaluatedCount,
+        avgScore: calibrationProfile.avgScore,
+        avgScorePct: calibrationProfile.avgScorePct,
+      },
+      predictions,
+      queue,
+      results: [],
+    };
+
+    return {
+      status: 'frozen',
+      changed: true,
+      experiment,
+    };
+  }
+
+  /**
+   * Explicitly resets a Holdout experiment so a new freeze can occur.
+   */
+  function resetExperiment() {
+    return null;
+  }
+
+  /**
+   * Records a single Blind submission for a holdout speaker using strictly its frozen prediction.
+   * Never alters frozen predictions, frozenAt, algorithmVersion, or queue.
+   */
+  function recordHoldoutResult(experiment, submission) {
+    if (!isValidExperimentState(experiment)) {
+      return { ok: false, error: 'Experiment is not locked.', experiment };
+    }
+    if (!submission || typeof submission !== 'object' || typeof submission.speakerId !== 'string') {
+      return { ok: false, error: 'Invalid submission payload.', experiment };
+    }
+
+    const frozenEntry = experiment.predictions[submission.speakerId];
+    if (!frozenEntry) {
+      return { ok: false, error: 'Speaker is not in holdout set.', experiment };
+    }
+    if (experiment.results.some((r) => r && r.speakerId === submission.speakerId)) {
+      return { ok: false, error: 'Speaker already recorded in experiment.', experiment };
+    }
+
+    const actual = computeActualScore(submission.rating, submission.quizResult || null);
+    if (!actual) {
+      return { ok: false, error: 'Invalid rating or quiz score.', experiment };
+    }
+    const err = computePredictionError(frozenEntry.predictedScore, actual.actualScore);
+    if (!err) {
+      return { ok: false, error: 'Invalid prediction error computation.', experiment };
+    }
+
+    const submittedAt =
+      typeof submission.submittedAt === 'string' && submission.submittedAt.trim() !== ''
+        ? submission.submittedAt
+        : new Date().toISOString();
+
+    const record = {
+      id: `exp_${submittedAt}_${submission.speakerId}`,
+      speakerId: submission.speakerId,
+      group: frozenEntry.group,
+      algorithmVersion: experiment.algorithmVersion,
+      frozenAt: experiment.frozenAt,
+      predictedScore: err.predictedScore,
+      submittedAt,
+      rating: {
+        clarity: submission.rating.clarity,
+        comprehension: Number(submission.rating.comprehension),
+      },
+      subjectiveScore: actual.subjectiveScore,
+      quizAvailable: Boolean(submission.quizResult),
+      quizSelectedIndices: Array.isArray(submission.quizSelectedIndices)
+        ? submission.quizSelectedIndices.slice()
+        : [],
+      quizCorrectCount: submission.quizResult ? submission.quizResult.correctCount : null,
+      quizTotalQuestions: submission.quizResult ? submission.quizResult.totalQuestions : 0,
+      quizAccuracy: actual.quizAccuracy,
+      actualScore: err.actualScore,
+      actualMode: actual.mode,
+      signedError: err.signedError,
+      absError: err.absError,
+    };
+
+    const nextExperiment = cloneExperimentState(experiment);
+    nextExperiment.results.push(record);
+
+    return {
+      ok: true,
+      record,
+      experiment: nextExperiment,
+    };
+  }
+
+  /**
+   * Produces pure numeric Holdout experiment summaries (overall, recommended vs random, and per-speaker).
+   * Uncompleted holdout speakers remain masked to preserve Blind integrity.
+   */
+  function summarizeExperimentReport(experiment, speakers) {
+    const speakerById = new Map(
+      (Array.isArray(speakers) ? speakers : []).map((s) => [s.id, s])
+    );
+
+    if (!isValidExperimentState(experiment)) {
+      const emptyGroup = summarizeGroupRecords([]);
+      return {
+        locked: false,
+        algorithmVersion: null,
+        algorithmVersionLabel: null,
+        frozenAt: null,
+        totalHoldoutCount: HOLDOUT_SPEAKER_IDS.length,
+        completedCount: 0,
+        overall: emptyGroup,
+        recommended: emptyGroup,
+        random: emptyGroup,
+        bySpeaker: [],
+      };
+    }
+
+    const groupReport = summarizePredictionReport(experiment.results);
+    const validNormalizedAll = [];
+    const resultBySpeakerId = new Map();
+
+    for (const rec of experiment.results) {
+      if (!rec || typeof rec !== 'object') continue;
+      if (rec.group !== 'recommended' && rec.group !== 'random') continue;
+      const err = computePredictionError(rec.predictedScore, rec.actualScore);
+      if (!err) continue;
+      resultBySpeakerId.set(rec.speakerId, { rec, err });
+      validNormalizedAll.push({
+        group: rec.group,
+        predictedScore: err.predictedScore,
+        actualScore: err.actualScore,
+        absError: err.absError,
+        signedError: err.signedError,
+        quizAccuracy:
+          typeof rec.quizAccuracy === 'number' &&
+          Number.isFinite(rec.quizAccuracy) &&
+          rec.quizAccuracy >= 0 &&
+          rec.quizAccuracy <= 1
+            ? rec.quizAccuracy
+            : null,
+        subjectiveScore:
+          typeof rec.subjectiveScore === 'number' &&
+          Number.isFinite(rec.subjectiveScore) &&
+          rec.subjectiveScore >= 0 &&
+          rec.subjectiveScore <= 1
+            ? rec.subjectiveScore
+            : rec.rating
+              ? scoreEvaluation(rec.rating)
+              : null,
+        rating: rec.rating || null,
+      });
+    }
+
+    const bySpeaker = experiment.queue.map((qItem, idx) => {
+      const done = resultBySpeakerId.get(qItem.speakerId);
+      if (!done) {
+        return {
+          queueIndex: idx,
+          speakerId: null,
+          speakerName: null,
+          completed: false,
+          group: null,
+          predictedScore: null,
+          predictedScorePct: null,
+          actualScore: null,
+          actualScorePct: null,
+          quizAccuracy: null,
+          quizAccuracyPct: null,
+          quizCorrectCount: null,
+          quizTotalQuestions: null,
+          subjectiveScore: null,
+          subjectiveScorePct: null,
+          rating: null,
+          absError: null,
+          absErrorPct: null,
+          signedError: null,
+          signedErrorPct: null,
+        };
+      }
+
+      const { rec, err } = done;
+      const speaker = speakerById.get(qItem.speakerId);
+      return {
+        queueIndex: idx,
+        speakerId: qItem.speakerId,
+        speakerName: speaker ? speaker.name : qItem.speakerId,
+        completed: true,
+        group: rec.group,
+        predictedScore: err.predictedScore,
+        predictedScorePct: err.predictedScorePct,
+        actualScore: err.actualScore,
+        actualScorePct: err.actualScorePct,
+        quizAccuracy: rec.quizAccuracy,
+        quizAccuracyPct:
+          typeof rec.quizAccuracy === 'number' ? roundTo(rec.quizAccuracy * 100, 1) : null,
+        quizCorrectCount: rec.quizCorrectCount,
+        quizTotalQuestions: rec.quizTotalQuestions,
+        subjectiveScore: rec.subjectiveScore,
+        subjectiveScorePct:
+          typeof rec.subjectiveScore === 'number'
+            ? roundTo(rec.subjectiveScore * 100, 1)
+            : null,
+        rating: rec.rating ? { ...rec.rating } : null,
+        absError: err.absError,
+        absErrorPct: err.absErrorPct,
+        signedError: err.signedError,
+        signedErrorPct: err.signedErrorPct,
+      };
+    });
+
+    return {
+      locked: true,
+      algorithmVersion: experiment.algorithmVersion,
+      algorithmVersionLabel:
+        experiment.algorithmVersionLabel || `예측 모델 ${experiment.algorithmVersion}`,
+      frozenAt: experiment.frozenAt,
+      totalHoldoutCount: experiment.queue.length,
+      completedCount: validNormalizedAll.length,
+      overall: summarizeGroupRecords(validNormalizedAll),
+      recommended: groupReport.recommended,
+      random: groupReport.random,
+      bySpeaker,
+    };
+  }
+
   return {
     CLARITY_SCORES,
     CLARITY_LABELS,
@@ -1500,6 +1976,8 @@
     ACOUSTIC_UNMEASURED_STATUS,
     UNMEASURED_ACOUSTIC_TRAITS,
     RECOMMENDATION_REASON_CHIPS,
+    EXPERIMENT_STORAGE_KEY,
+    HOLDOUT_SPEAKER_IDS,
     formatAccent,
     formatPace,
     formatTopic,
@@ -1519,5 +1997,12 @@
     buildPredictionSession,
     summarizePredictionReport,
     validateComprehensionData,
+    partitionExperimentSpeakers,
+    getCalibrationStatus,
+    isValidExperimentState,
+    freezeHoldoutPredictions,
+    resetExperiment,
+    recordHoldoutResult,
+    summarizeExperimentReport,
   };
 });
