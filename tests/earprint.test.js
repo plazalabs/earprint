@@ -63,6 +63,17 @@ test('speakers.json: every speaker has required fields, unique id, and unique va
   }
 });
 
+test('speakers.json: explicitly marks embedStatus as unverified on all 12 clips', () => {
+  assert.equal(typeof rawData.verifiedAt, 'string');
+  for (const speaker of speakers) {
+    assert.equal(
+      speaker.clip.embedStatus,
+      'unverified',
+      `embedStatus must remain unverified for ${speaker.id}`
+    );
+  }
+});
+
 test('validateSpeakersData: catches missing fields, duplicate IDs, bad videoIds, and forbidden demographics', () => {
   const broken = {
     speakers: [
@@ -111,6 +122,13 @@ test('validateSpeakersData: catches missing fields, duplicate IDs, bad videoIds,
   assert.ok(result.errors.some((e) => e.includes('url must be a valid YouTube watch URL')));
 });
 
+test('validateSpeakersData: rejects null, non-object, or missing speakers array inputs', () => {
+  assert.equal(matching.validateSpeakersData(null).valid, false);
+  assert.equal(matching.validateSpeakersData(undefined).valid, false);
+  assert.equal(matching.validateSpeakersData({}).valid, false);
+  assert.equal(matching.validateSpeakersData({ speakers: 'not-array' }).valid, false);
+});
+
 test('matching.js: runs purely in Node without browser DOM globals', () => {
   assert.equal(typeof globalThis.document, 'undefined');
   assert.equal(typeof globalThis.window, 'undefined');
@@ -127,16 +145,50 @@ test('scoreEvaluation: calculates expected normalized scores and rejects invalid
   assert.equal(matching.scoreEvaluation({ clarity: 'unknown', comprehension: 3 }), null);
   assert.equal(matching.scoreEvaluation({ clarity: 'clear', comprehension: 0 }), null);
   assert.equal(matching.scoreEvaluation({ clarity: 'clear', comprehension: 6 }), null);
+  assert.equal(matching.scoreEvaluation({ clarity: 'clear', comprehension: NaN }), null);
+  assert.equal(matching.scoreEvaluation({ clarity: 'clear', comprehension: Infinity }), null);
   assert.equal(matching.scoreEvaluation(null), null);
+  assert.equal(matching.scoreEvaluation(undefined), null);
+  assert.equal(matching.scoreEvaluation('clear'), null);
 });
 
-test('computeEarprintProfile: handles empty ratings cleanly', () => {
-  const profile = matching.computeEarprintProfile(speakers, {});
-  assert.equal(profile.evaluatedCount, 0);
-  assert.equal(profile.totalCount, 12);
-  assert.deepEqual(profile.byAccent, []);
-  assert.deepEqual(profile.byPace, []);
-  assert.ok(profile.summaryText.length > 0);
+test('isHighRating: respects exact positive threshold boundaries', () => {
+  assert.equal(matching.isHighRating({ clarity: 'moderate', comprehension: 4 }), true); // 0.625
+  assert.equal(matching.isHighRating({ clarity: 'clear', comprehension: 2 }), true); // 0.625
+  assert.equal(matching.isHighRating({ clarity: 'moderate', comprehension: 3 }), false); // 0.5
+  assert.equal(matching.isHighRating({ clarity: 'hard', comprehension: 5 }), false); // 0.5
+  assert.equal(matching.isHighRating({ clarity: 'clear', comprehension: 1 }), false); // 0.5
+  assert.equal(matching.isHighRating(null), false);
+});
+
+test('computeEarprintProfile: handles empty ratings and invalid root inputs cleanly', () => {
+  const emptyProfile = matching.computeEarprintProfile(speakers, {});
+  assert.equal(emptyProfile.evaluatedCount, 0);
+  assert.equal(emptyProfile.totalCount, 12);
+  assert.deepEqual(emptyProfile.byAccent, []);
+  assert.deepEqual(emptyProfile.byPace, []);
+  assert.ok(emptyProfile.summaryText.length > 0);
+
+  const nullProfile = matching.computeEarprintProfile(null, null);
+  assert.equal(nullProfile.evaluatedCount, 0);
+  assert.equal(nullProfile.totalCount, 0);
+  assert.deepEqual(nullProfile.byAccent, []);
+});
+
+test('computeEarprintProfile: ignores corrupted rating entries and unknown speaker IDs', () => {
+  const mixedRatings = {
+    'ken-robinson': { clarity: 'clear', comprehension: 5 },
+    'celeste-headlee': { clarity: 'invalid-clarity', comprehension: 4 },
+    'tim-urban': { clarity: 'clear', comprehension: 99 },
+    'dan-gilbert': null,
+    'non-existent-id': { clarity: 'clear', comprehension: 5 },
+  };
+
+  const profile = matching.computeEarprintProfile(speakers, mixedRatings);
+  assert.equal(profile.evaluatedCount, 1);
+  assert.equal(profile.avgScore, 1);
+  assert.equal(profile.byAccent.length, 1);
+  assert.equal(profile.byAccent[0].key, 'UK');
 });
 
 test('computeEarprintProfile: aggregates by accent and estimated pace and sorts highest first', () => {
@@ -159,6 +211,27 @@ test('computeEarprintProfile: aggregates by accent and estimated pace and sorts 
   assert.ok(profile.summaryText.includes('느림 (추정)'));
 });
 
+test('computeEarprintProfile: breaks ties by count desc then key asc', () => {
+  const syntheticSpeakers = [
+    { id: 's1', name: 'A', accent: 'US', pace: 'slow', topics: ['science'] },
+    { id: 's2', name: 'B', accent: 'US', pace: 'medium', topics: ['science'] },
+    { id: 's3', name: 'C', accent: 'Australian', pace: 'fast', topics: ['science'] },
+    { id: 's4', name: 'D', accent: 'UK', pace: 'fast', topics: ['science'] },
+  ];
+  const ratings = {
+    s1: { clarity: 'clear', comprehension: 5 }, // US: avg 1.0, count 2
+    s2: { clarity: 'clear', comprehension: 5 },
+    s3: { clarity: 'clear', comprehension: 5 }, // Australian: avg 1.0, count 1
+    s4: { clarity: 'clear', comprehension: 5 }, // UK: avg 1.0, count 1
+  };
+
+  const profile = matching.computeEarprintProfile(syntheticSpeakers, ratings);
+  assert.deepEqual(
+    profile.byAccent.map((g) => g.key),
+    ['US', 'Australian', 'UK']
+  );
+});
+
 test('computeSpeakerSimilarity: treats unknown accent as non-matching and ranks closer profiles higher', () => {
   const ref = { accent: 'UK', pace: 'slow', topics: ['education', 'creativity'] };
   const close = { accent: 'UK', pace: 'medium', topics: ['communication', 'creativity'] };
@@ -176,10 +249,50 @@ test('computeSpeakerSimilarity: treats unknown accent as non-matching and ranks 
   assert.equal(simUnknown.accentMatch, 0);
 });
 
-test('recommendSpeakers: returns no_ratings when ratings are empty', () => {
-  const result = matching.recommendSpeakers(speakers, {}, { limit: 3 });
-  assert.equal(result.status, 'no_ratings');
-  assert.equal(result.recommendations.length, 0);
+test('buildRecommendationReason: generates accurate Korean reasons for exact, adjacent, and fallback matches', () => {
+  const anchor = { id: 'a', name: 'Anchor Speaker', accent: 'UK', pace: 'slow', topics: ['education'] };
+  const exactCand = { id: 'b', name: 'Exact', accent: 'UK', pace: 'slow', topics: ['education'] };
+  const adjCand = { id: 'c', name: 'Adj', accent: 'US', pace: 'medium', topics: ['science'] };
+  const noneCand = { id: 'd', name: 'None', accent: 'Irish', pace: 'fast', topics: ['economics'] };
+
+  const exactReason = matching.buildRecommendationReason(
+    exactCand,
+    anchor,
+    matching.computeSpeakerSimilarity(exactCand, anchor)
+  );
+  assert.ok(exactReason.includes('일치하며'));
+  assert.ok(exactReason.includes('(추정)'));
+  assert.ok(exactReason.includes('교육'));
+
+  const adjReason = matching.buildRecommendationReason(
+    adjCand,
+    anchor,
+    matching.computeSpeakerSimilarity(adjCand, anchor)
+  );
+  assert.ok(adjReason.includes('비슷하며'));
+  assert.ok(adjReason.includes('(추정)'));
+
+  const fallbackReason = matching.buildRecommendationReason(
+    noneCand,
+    anchor,
+    matching.computeSpeakerSimilarity(noneCand, anchor)
+  );
+  assert.ok(fallbackReason.includes('Anchor Speaker'));
+  assert.ok(fallbackReason.includes('후보'));
+});
+
+test('recommendSpeakers: returns no_ratings when ratings are empty or invalid', () => {
+  const emptyRes = matching.recommendSpeakers(speakers, {}, { limit: 3 });
+  assert.equal(emptyRes.status, 'no_ratings');
+  assert.equal(emptyRes.recommendations.length, 0);
+
+  const badInputRes = matching.recommendSpeakers(speakers, { 'ken-robinson': { clarity: 'bad', comprehension: 9 } });
+  assert.equal(badInputRes.status, 'no_ratings');
+  assert.equal(badInputRes.recommendations.length, 0);
+
+  const nullSpeakersRes = matching.recommendSpeakers(null, null);
+  assert.equal(nullSpeakersRes.status, 'no_ratings');
+  assert.equal(nullSpeakersRes.recommendations.length, 0);
 });
 
 test('recommendSpeakers: recommends unrated UK/similar-feature speakers when Ken Robinson is rated high', () => {
@@ -191,13 +304,11 @@ test('recommendSpeakers: recommends unrated UK/similar-feature speakers when Ken
   assert.equal(result.status, 'matched');
   assert.equal(result.recommendations.length, 3);
 
-  // Already rated speaker must never appear in recommendations
   assert.equal(
     result.recommendations.some((r) => r.speaker.id === 'ken-robinson'),
     false
   );
 
-  // Top recommendation should be Julian Treasure (UK + medium(close) + creativity topic overlap)
   assert.equal(result.recommendations[0].speaker.id, 'julian-treasure');
   assert.ok(result.recommendations[0].reason.includes('Sir Ken Robinson'));
   assert.ok(result.recommendations[0].reason.includes('영국 (UK)'));
@@ -228,10 +339,21 @@ test('recommendSpeakers: falls back to contrast candidates when all ratings are 
     result.recommendations.some((r) => r.speaker.id === 'david-malan'),
     false
   );
-  // Top contrast candidate should not share US accent or fast pace
   assert.notEqual(result.recommendations[0].speaker.accent, 'US');
   assert.notEqual(result.recommendations[0].speaker.pace, 'fast');
   assert.ok(result.recommendations[0].reason.includes('추정'));
+});
+
+test('recommendSpeakers: handles 11 of 12 rated (single unrated speaker left)', () => {
+  const ratings = {};
+  for (let i = 0; i < speakers.length - 1; i += 1) {
+    ratings[speakers[i].id] = { clarity: 'clear', comprehension: 4 };
+  }
+  const remainingId = speakers[speakers.length - 1].id;
+  const result = matching.recommendSpeakers(speakers, ratings, { limit: 3 });
+  assert.equal(result.status, 'matched');
+  assert.equal(result.recommendations.length, 1);
+  assert.equal(result.recommendations[0].speaker.id, remainingId);
 });
 
 test('recommendSpeakers: returns all_rated when all 12 speakers are evaluated', () => {
@@ -242,6 +364,51 @@ test('recommendSpeakers: returns all_rated when all 12 speakers are evaluated', 
   const result = matching.recommendSpeakers(speakers, allRatings, { limit: 3 });
   assert.equal(result.status, 'all_rated');
   assert.equal(result.recommendations.length, 0);
+});
+
+test('recommendSpeakers: resolves exact score ties deterministically by speaker id', () => {
+  const tiePool = [
+    { id: 'anchor', name: 'Anchor', accent: 'UK', pace: 'medium', topics: ['science'] },
+    { id: 'zeta-speaker', name: 'Zeta', accent: 'UK', pace: 'medium', topics: ['science'] },
+    { id: 'alpha-speaker', name: 'Alpha', accent: 'UK', pace: 'medium', topics: ['science'] },
+  ];
+  const ratings = { anchor: { clarity: 'clear', comprehension: 5 } };
+
+  const result = matching.recommendSpeakers(tiePool, ratings, { limit: 2 });
+  assert.equal(result.status, 'matched');
+  assert.equal(result.recommendations[0].matchScore, result.recommendations[1].matchScore);
+  assert.deepEqual(
+    result.recommendations.map((r) => r.speaker.id),
+    ['alpha-speaker', 'zeta-speaker']
+  );
+});
+
+test('recommendSpeakers: safely normalizes limit option boundaries', () => {
+  const ratings = { 'ken-robinson': { clarity: 'clear', comprehension: 5 } };
+
+  assert.equal(matching.recommendSpeakers(speakers, ratings, { limit: 1 }).recommendations.length, 1);
+  assert.equal(matching.recommendSpeakers(speakers, ratings, { limit: 20 }).recommendations.length, 11);
+  assert.equal(matching.recommendSpeakers(speakers, ratings, { limit: 0 }).recommendations.length, 3);
+  assert.equal(matching.recommendSpeakers(speakers, ratings, { limit: -5 }).recommendations.length, 3);
+  assert.equal(matching.recommendSpeakers(speakers, ratings, { limit: 'bad' }).recommendations.length, 3);
+});
+
+test('recommendSpeakers: weights higher-rated anchor more strongly across multiple positive anchors', () => {
+  const pool = [
+    { id: 'high-anchor', name: 'High Anchor', accent: 'UK', pace: 'slow', topics: ['education'] },
+    { id: 'mid-anchor', name: 'Mid Anchor', accent: 'US', pace: 'fast', topics: ['economics'] },
+    { id: 'uk-match', name: 'UK Match', accent: 'UK', pace: 'slow', topics: ['education'] },
+    { id: 'us-match', name: 'US Match', accent: 'US', pace: 'fast', topics: ['economics'] },
+  ];
+  const ratings = {
+    'high-anchor': { clarity: 'clear', comprehension: 5 }, // score 1.0
+    'mid-anchor': { clarity: 'moderate', comprehension: 4 }, // score 0.625
+  };
+
+  const result = matching.recommendSpeakers(pool, ratings, { limit: 2 });
+  assert.equal(result.recommendations[0].speaker.id, 'uk-match');
+  assert.equal(result.recommendations[0].anchorSpeakerId, 'high-anchor');
+  assert.ok(result.recommendations[0].matchScore > result.recommendations[1].matchScore);
 });
 
 test('recommendSpeakers: produces deterministic results across repeated calls', () => {
