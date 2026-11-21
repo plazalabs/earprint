@@ -1,0 +1,234 @@
+{
+  "version": "1.0",
+  "verifiedAt": "2026-11-21",
+  "notes": {
+    "policy": "speakers.json의 startSeconds부터 40~60초 구간의 발화 내용을 타임스탬프가 포함된 확인 가능한 출처로 검증한 화자만 quizAvailable: true로 등록합니다. 구간 경계를 출처로 확정할 수 없는 화자는 문제를 창작하지 않고 quizAvailable: false로 표시합니다.",
+    "excerptDisclosure": "sourceExcerpt와 sourceUrl은 문항 근거 보관 및 테스트 제출 후 확인용이며, 예측 모드 제출 전에는 사용자 화면에 표시하지 않습니다."
+  },
+  "items": [
+    {
+      "speakerId": "ken-robinson",
+      "videoId": "iG9CE55wbtY",
+      "startSeconds": 60,
+      "endSeconds": 120,
+      "durationSeconds": 60,
+      "quizAvailable": true,
+      "sourceName": "TED Talk Timestamped Transcript Mirror (Do schools kill creativity?)",
+      "sourceUrl": "https://www.scribd.com/document/763899468/1-TED-TALK-SERIES-20-BAI-TED-TALKS-%C4%90ANG-XEM-NH%E1%BA%A4T-KEM-PH%E1%BB%A4-%C4%90%E1%BB%80-SONG-NG%E1%BB%AE",
+      "verifiedTimestampRange": "01:08-01:55",
+      "sourceExcerpt": "[01:08-01:45] Dinner party anecdote: saying you work in education makes \"the blood run from their face\" (\"Why me? My one night out all week\"); asking about their own education makes them \"pin you to the wall\" because it goes deep, \"Like religion and money\".",
+      "questions": [
+        {
+          "id": "ken-robinson-q1",
+          "prompt": "화자가 말한 저녁 파티(dinner party) 예시에서, 자신이 교육 분야에서 일한다고 말하면 상대방은 어떤 반응을 보인다고 했나요?",
+          "choices": [
+            "얼굴에서 핏기가 사라지며 당황한 반응을 보인다",
+            "반갑게 명함을 교환하며 교육 정책을 묻는다",
+            "자신의 자녀 학교 추천을 바로 부탁한다",
+            "교육보다 예술 이야기를 하자고 화제를 바꾼다"
+          ],
+          "answerIndex": 0
+        },
+        {
+          "id": "ken-robinson-q2",
+          "prompt": "반대로 상대방에게 '본인의 교육 경험'에 대해 물어보면 어떻게 반응하며, 화자는 교육을 어떤 주제들에 비유했나요?",
+          "choices": [
+            "짧게 답하고 자리를 피하며, 날씨와 건강에 비유했다",
+            "벽에 몰아붙일 정도로 깊이 이야기하며, 종교와 돈에 비유했다",
+            "농담으로 넘기며, 스포츠와 음악에 비유했다",
+            "기억이 안 난다고 답하며, 여행과 음식에 비유했다"
+          ],
+          "answerIndex": 1
+        }
+      ]
+    },
+    {
+      "speakerId": "julian-treasure",
+      "videoId": "cSohjlYQI2A",
+      "startSeconds": 45,
+      "endSeconds": 103,
+      "durationSeconds": 58,
+      "quizAvailable": true,
+      "sourceName": "TED Transcript via DailyGood & YouTube Chapter Timestamps (cSohjlYQI2A)",
+      "sourceUrl": "https://www.dailygood.org/story/1844/julian-treasure-on-5-ways-to-listen-better-julian-treasure/",
+      "verifiedTimestampRange": "00:45-01:43 (cross-checked with videohighlight.com/v/cSohjlYQI2A: 00:39, 01:00, 01:22, 01:44)",
+      "sourceExcerpt": "[00:45-01:22] Pattern recognition at a cocktail party (\"David, Sara, pay attention\" — distinguishing noise from signal, especially our name); differencing illustrated with pink noise (we \"discount sounds that remain the same\").",
+      "questions": [
+        {
+          "id": "julian-treasure-q1",
+          "prompt": "화자가 시끄러운 칵테일 파티 예시로 설명한 '패턴 인식(pattern recognition)'의 역할은 무엇인가요?",
+          "choices": [
+            "배경 소음 속에서 신호, 특히 자신의 이름을 구분해 내는 것",
+            "상대방의 억양만 듣고 출신 지역을 추정하는 것",
+            "배경 음악의 박자와 음정을 정확히 기억하는 것",
+            "여러 사람의 대화를 단어 단위로 동시에 암기하는 것"
+          ],
+          "answerIndex": 0
+        },
+        {
+          "id": "julian-treasure-q2",
+          "prompt": "화자가 '핑크 노이즈(pink noise)' 예시로 설명한 '차이 감지(differencing)' 기법의 특징은 무엇인가요?",
+          "choices": [
+            "일정한 소리일수록 시간이 지날수록 더 크게 들린다",
+            "높은 음역대의 소리만 선택적으로 증폭해 듣는다",
+            "변하지 않고 계속 유지되는 소리는 무시하고 변화에 주목한다",
+            "주변이 조용할 때만 소리의 방향을 파악할 수 있다"
+          ],
+          "answerIndex": 2
+        }
+      ]
+    },
+    {
+      "speakerId": "hannah-fry",
+      "videoId": "yFVXsjVdvmY",
+      "startSeconds": 40,
+      "endSeconds": 100,
+      "durationSeconds": 60,
+      "quizAvailable": false,
+      "reason": "지정 구간(40~100초)의 발화 내용을 타임스탬프가 포함된 공식 트랜스크립트 등 확인 가능한 출처로 검증하지 못해 문항을 제외했습니다.",
+      "questions": []
+    },
+    {
+      "speakerId": "celeste-headlee",
+      "videoId": "R1vskiVDwl4",
+      "startSeconds": 65,
+      "endSeconds": 125,
+      "durationSeconds": 60,
+      "quizAvailable": true,
+      "sourceName": "TED Talk Timestamped Transcript (10 ways to have a better conversation)",
+      "sourceUrl": "https://www.scribd.com/document/510625594/Celeste-Headlee-10-ways-to-have-a-better-conversation-TED-Talk",
+      "verifiedTimestampRange": "01:35-02:08",
+      "sourceExcerpt": "[01:35-02:05] Pew Research finding: \"about a third of American teenagers send more than a hundred texts a day\"; The Atlantic article by high school teacher Paul Barnwell on teaching students \"how to speak on a specific subject without using notes\".",
+      "questions": [
+        {
+          "id": "celeste-headlee-q1",
+          "prompt": "화자가 인용한 퓨 리서치(Pew Research) 조사에 따르면, 미국 청소년의 약 3분의 1은 하루에 문자 메시지를 얼마나 보낸다고 했나요?",
+          "choices": [
+            "하루 20건 이하",
+            "하루 50건 미만",
+            "하루 100건 이상",
+            "하루 500건 이상"
+          ],
+          "answerIndex": 2
+        },
+        {
+          "id": "celeste-headlee-q2",
+          "prompt": "화자가 소개한 『디 애틀랜틱(The Atlantic)』 기고문에서 고등학교 교사 폴 반웰(Paul Barnwell)이 학생들에게 가르치려 한 것은 무엇인가요?",
+          "choices": [
+            "뉴스 기사를 요약해 이메일로 작성하는 법",
+            "메모(노트) 없이 특정 주제에 대해 말하는 법",
+            "토론에서 상대방의 주장을 논리적으로 반박하는 법",
+            "발표 대본을 암기해 1분 안에 낭독하는 법"
+          ],
+          "answerIndex": 1
+        }
+      ]
+    },
+    {
+      "speakerId": "tim-urban",
+      "videoId": "arj7oStGLkU",
+      "startSeconds": 45,
+      "endSeconds": 100,
+      "durationSeconds": 55,
+      "quizAvailable": true,
+      "sourceName": "YouTube Timestamped Captions (SandBase / LingQ, arj7oStGLkU)",
+      "sourceUrl": "https://www.sandbase.ai/tools/video/youtube-transcript",
+      "verifiedTimestampRange": "00:46-01:38",
+      "sourceExcerpt": "[00:51-01:38] \"90-page senior thesis\" meant to take a year; planned to ramp up \"just like a little staircase\", then the first few months and middle months went by without writing.",
+      "questions": [
+        {
+          "id": "tim-urban-q1",
+          "prompt": "화자가 1년 동안 써야 했던 졸업 논문(senior thesis)의 분량과 처음 세운 계획의 비유는 무엇이었나요?",
+          "choices": [
+            "30페이지 분량, 마라톤 완주에 비유했다",
+            "50페이지 분량, 도미노 쌓기에 비유했다",
+            "120페이지 분량, 산 정상 등반에 비유했다",
+            "90페이지 분량, 작은 계단(staircase)을 오르는 것에 비유했다"
+          ],
+          "answerIndex": 3
+        },
+        {
+          "id": "tim-urban-q2",
+          "prompt": "졸업 논문 계획을 세운 뒤 실제로 첫 몇 달과 중간 몇 달 동안 어떤 일이 벌어졌나요?",
+          "choices": [
+            "첫 달에 초안을 끝내고 남은 기간 동안 퇴고만 했다",
+            "시간이 그대로 지나가며 글을 거의 쓰지 못해 계획을 수정했다",
+            "지도교수의 권유로 분량을 절반으로 줄여 조기 제출했다",
+            "팀 프로젝트로 전환해 다른 학생들과 분담해 작성했다"
+          ],
+          "answerIndex": 1
+        }
+      ]
+    },
+    {
+      "speakerId": "dan-gilbert",
+      "videoId": "4q1dgn_C0AU",
+      "startSeconds": 50,
+      "endSeconds": 110,
+      "durationSeconds": 60,
+      "quizAvailable": false,
+      "reason": "강연 전문 텍스트는 확인되었으나 50~110초 구간의 초 단위 타임스탬프 경계를 외부 출처로 확정할 수 없어 문항을 제외했습니다.",
+      "questions": []
+    },
+    {
+      "speakerId": "david-malan",
+      "videoId": "ggshaJcOc6Y",
+      "startSeconds": 60,
+      "endSeconds": 120,
+      "durationSeconds": 60,
+      "quizAvailable": false,
+      "reason": "지정 구간(60~120초)의 타임스탬프 포함 트랜스크립트를 외부 출처에서 확인하지 못해 문항을 제외했습니다.",
+      "questions": []
+    },
+    {
+      "speakerId": "malcolm-gladwell",
+      "videoId": "ziGD7vQOwl8",
+      "startSeconds": 40,
+      "endSeconds": 100,
+      "durationSeconds": 60,
+      "quizAvailable": false,
+      "reason": "강연 전문 텍스트는 확인되었으나 40~100초 구간의 초 단위 타임스탬프 경계를 외부 출처로 확정할 수 없어 문항을 제외했습니다.",
+      "questions": []
+    },
+    {
+      "speakerId": "sugata-mitra",
+      "videoId": "y3jYVe1RGaU",
+      "startSeconds": 60,
+      "endSeconds": 120,
+      "durationSeconds": 60,
+      "quizAvailable": false,
+      "reason": "60~120초 구간의 초 단위 타임스탬프 포함 트랜스크립트를 외부 출처로 확정할 수 없어 문항을 제외했습니다.",
+      "questions": []
+    },
+    {
+      "speakerId": "hans-rosling",
+      "videoId": "fTznEIZRkLg",
+      "startSeconds": 50,
+      "endSeconds": 110,
+      "durationSeconds": 60,
+      "quizAvailable": false,
+      "reason": "강연 전문과 0:00~2:06 대단위 구간은 확인되었으나 50~110초 내부의 초 단위 타임스탬프 경계를 외부 출처로 확정할 수 없어 문항을 제외했습니다.",
+      "questions": []
+    },
+    {
+      "speakerId": "david-mcwilliams",
+      "videoId": "hUPrUJ4F_Ro",
+      "startSeconds": 45,
+      "endSeconds": 105,
+      "durationSeconds": 60,
+      "quizAvailable": false,
+      "reason": "지정 구간(45~105초)의 타임스탬프 포함 트랜스크립트를 외부 출처에서 확인하지 못해 문항을 제외했습니다.",
+      "questions": []
+    },
+    {
+      "speakerId": "hugh-evans",
+      "videoId": "joKwx1WnQmo",
+      "startSeconds": 55,
+      "endSeconds": 115,
+      "durationSeconds": 60,
+      "quizAvailable": false,
+      "reason": "TED 공식 영상(ODLg_00f9BE) 기준 타임스탬프는 확인되었으나, speakers.json에 등록된 Global Citizen 업로드 영상(joKwx1WnQmo)과의 인트로 오프셋 일치 여부를 확정할 수 없어 문항을 제외했습니다.",
+      "questions": []
+    }
+  ]
+}
