@@ -192,7 +192,7 @@
       btn.appendChild(createEl('span', badgeClass, badgeText));
 
       btn.addEventListener('click', function () {
-        selectSpeaker(speaker.id);
+        selectSpeaker(speaker.id, true);
       });
 
       els.speakerRoster.appendChild(btn);
@@ -399,13 +399,16 @@
     renderExplorer(matchResult);
   }
 
-  function selectSpeaker(speakerId) {
+  function selectSpeaker(speakerId, scrollToTop) {
     const changed = state.activeSpeakerId !== speakerId;
     state.activeSpeakerId = speakerId;
     els.formFeedback.textContent = '';
     els.formFeedback.classList.remove('is-error');
     renderActiveSpeaker(changed);
     renderRoster();
+    if (scrollToTop) {
+      window.scrollTo({ top: 0, behavior: 'auto' });
+    }
   }
 
   function moveToNextSpeaker() {
