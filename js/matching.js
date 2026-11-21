@@ -530,6 +530,671 @@
     };
   }
 
+  const PREDICTION_WEIGHTS = Object.freeze({
+    accent: 0.45,
+    pace: 0.35,
+    baseline: 0.2,
+  });
+
+  const ACTUAL_SCORE_WEIGHTS = Object.freeze({
+    objective: 0.5,
+    subjective: 0.5,
+  });
+
+  function clamp01(value) {
+    if (value < 0) return 0;
+    if (value > 1) return 1;
+    return value;
+  }
+
+  /**
+   * Predicts a user's listening suitability score in [0, 1] for an unseen speaker
+   * using their computed Earprint profile (DOM-free pure function).
+   * @param {object} profile
+   * @param {object} speaker
+   * @returns {number | null}
+   */
+  function predictScore(profile, speaker) {
+    if (
+      !profile ||
+      typeof profile !== 'object' ||
+      !Number.isFinite(profile.evaluatedCount) ||
+      profile.evaluatedCount <= 0 ||
+      !Number.isFinite(profile.avgScore)
+    ) {
+      return null;
+    }
+    if (!speaker || typeof speaker !== 'object') {
+      return null;
+    }
+
+    const base = clamp01(Number(profile.avgScore));
+    const unseenPrior = roundTo(0.5 * base + 0.25, 4);
+
+    const byAccent = Array.isArray(profile.byAccent) ? profile.byAccent : [];
+    let accentEst = unseenPrior;
+    if (speaker.accent && speaker.accent !== 'unknown') {
+      const accentEntry = byAccent.find(
+        (entry) =>
+          entry &&
+          entry.key === speaker.accent &&
+          Number.isFinite(entry.count) &&
+          entry.count > 0 &&
+          Number.isFinite(entry.avgScore)
+      );
+      if (accentEntry) {
+        accentEst = clamp01(Number(accentEntry.avgScore));
+      }
+    }
+
+    const byPace = Array.isArray(profile.byPace) ? profile.byPace : [];
+    let paceEst = unseenPrior;
+    const candPaceIdx = PACE_ORDER[speaker.pace];
+    if (candPaceIdx !== undefined) {
+      const exactPace = byPace.find(
+        (entry) =>
+          entry &&
+          entry.key === speaker.pace &&
+          Number.isFinite(entry.count) &&
+          entry.count > 0 &&
+          Number.isFinite(entry.avgScore)
+      );
+      if (exactPace) {
+        paceEst = clamp01(Number(exactPace.avgScore));
+      } else {
+        let adjWeightedSum = 0;
+        let adjCountSum = 0;
+        for (const entry of byPace) {
+          if (
+            !entry ||
+            PACE_ORDER[entry.key] === undefined ||
+            !Number.isFinite(entry.count) ||
+            entry.count <= 0 ||
+            !Number.isFinite(entry.avgScore)
+          ) {
+            continue;
+          }
+          if (Math.abs(PACE_ORDER[entry.key] - candPaceIdx) === 1) {
+            adjWeightedSum += clamp01(Number(entry.avgScore)) * entry.count;
+            adjCountSum += entry.count;
+          }
+        }
+        if (adjCountSum > 0) {
+          const adjAvg = adjWeightedSum / adjCountSum;
+          paceEst = 0.5 * adjAvg + 0.5 * unseenPrior;
+        }
+      }
+    }
+
+    const predicted =
+      PREDICTION_WEIGHTS.accent * accentEst +
+      PREDICTION_WEIGHTS.pace * paceEst +
+      PREDICTION_WEIGHTS.baseline * base;
+
+    return roundTo(clamp01(predicted), 4);
+  }
+
+  /**
+   * Grades objective multiple-choice comprehension answers.
+   * @param {Array<{ choices: string[], answerIndex: number }>} questions
+   * @param {number[]} selectedIndices
+   * @returns {object | null}
+   */
+  function gradeQuiz(questions, selectedIndices) {
+    if (!Array.isArray(questions) || questions.length === 0) return null;
+    if (!Array.isArray(selectedIndices) || selectedIndices.length !== questions.length) {
+      return null;
+    }
+
+    let correctCount = 0;
+    const itemResults = [];
+
+    for (let i = 0; i < questions.length; i += 1) {
+      const q = questions[i];
+      if (
+        !q ||
+        typeof q !== 'object' ||
+        !Array.isArray(q.choices) ||
+        q.choices.length < 2 ||
+        !Number.isInteger(q.answerIndex) ||
+        q.answerIndex < 0 ||
+        q.answerIndex >= q.choices.length
+      ) {
+        return null;
+      }
+      const selected = Number(selectedIndices[i]);
+      if (!Number.isInteger(selected) || selected < 0 || selected >= q.choices.length) {
+        return null;
+      }
+      const isCorrect = selected === q.answerIndex;
+      if (isCorrect) correctCount += 1;
+      itemResults.push(isCorrect);
+    }
+
+    const accuracy = roundTo(correctCount / questions.length, 4);
+    return {
+      correctCount,
+      totalQuestions: questions.length,
+      accuracy,
+      accuracyPct: Math.round(accuracy * 100),
+      itemResults,
+    };
+  }
+
+  /**
+   * Combines subjective listening rating with optional objective quiz accuracy.
+   * @param {{ clarity: string, comprehension: number }} rating
+   * @param {{ accuracy: number } | null} quizResult
+   * @returns {object | null}
+   */
+  function computeActualScore(rating, quizResult) {
+    const subjectiveScore = scoreEvaluation(rating);
+    if (subjectiveScore === null) return null;
+
+    const hasValidQuiz =
+      quizResult &&
+      typeof quizResult === 'object' &&
+      typeof quizResult.accuracy === 'number' &&
+      Number.isFinite(quizResult.accuracy) &&
+      quizResult.accuracy >= 0 &&
+      quizResult.accuracy <= 1;
+
+    if (hasValidQuiz) {
+      const quizAccuracy = roundTo(quizResult.accuracy, 4);
+      const actualScore = roundTo(
+        ACTUAL_SCORE_WEIGHTS.objective * quizAccuracy +
+          ACTUAL_SCORE_WEIGHTS.subjective * subjectiveScore,
+        4
+      );
+      return {
+        subjectiveScore,
+        subjectiveScorePct: Math.round(subjectiveScore * 100),
+        quizAccuracy,
+        quizAccuracyPct: Math.round(quizAccuracy * 100),
+        actualScore,
+        actualScorePct: Math.round(actualScore * 100),
+        mode: 'combined',
+      };
+    }
+
+    return {
+      subjectiveScore,
+      subjectiveScorePct: Math.round(subjectiveScore * 100),
+      quizAccuracy: null,
+      quizAccuracyPct: null,
+      actualScore: subjectiveScore,
+      actualScorePct: Math.round(subjectiveScore * 100),
+      mode: 'subjective_only',
+    };
+  }
+
+  /**
+   * Computes signed and absolute prediction errors between predicted and actual scores in [0, 1].
+   * @param {number} predictedScore
+   * @param {number} actualScore
+   * @returns {object | null}
+   */
+  function computePredictionError(predictedScore, actualScore) {
+    if (
+      typeof predictedScore !== 'number' ||
+      !Number.isFinite(predictedScore) ||
+      predictedScore < 0 ||
+      predictedScore > 1
+    ) {
+      return null;
+    }
+    if (
+      typeof actualScore !== 'number' ||
+      !Number.isFinite(actualScore) ||
+      actualScore < 0 ||
+      actualScore > 1
+    ) {
+      return null;
+    }
+
+    const pred = roundTo(predictedScore, 4);
+    const actual = roundTo(actualScore, 4);
+    const signedError = roundTo(pred - actual, 4);
+    const absError = roundTo(Math.abs(pred - actual), 4);
+
+    return {
+      predictedScore: pred,
+      predictedScorePct: roundTo(pred * 100, 1),
+      actualScore: actual,
+      actualScorePct: roundTo(actual * 100, 1),
+      signedError,
+      absError,
+      signedErrorPct: roundTo(signedError * 100, 1),
+      absErrorPct: roundTo(absError * 100, 1),
+    };
+  }
+
+  /**
+   * Builds a Blind prediction session queue alternating between 'recommended' and 'random' speakers.
+   * Each queue item freezes its pre-listening predictedScore before presentation.
+   */
+  function buildPredictionSession(speakers, ratingsMap, options) {
+    const list = Array.isArray(speakers) ? speakers : [];
+    const ratings = ratingsMap && typeof ratingsMap === 'object' ? ratingsMap : {};
+    const opts = options && typeof options === 'object' ? options : {};
+    const rng = typeof opts.rng === 'function' ? opts.rng : Math.random;
+    const startGroup = opts.startGroup === 'random' ? 'random' : 'recommended';
+    const quizOnly = Boolean(opts.quizOnly);
+    const comprehensionMap =
+      opts.comprehensionMap && typeof opts.comprehensionMap === 'object'
+        ? opts.comprehensionMap
+        : null;
+
+    const excludeSet = new Set();
+    if (opts.excludeIds instanceof Set) {
+      opts.excludeIds.forEach((id) => excludeSet.add(id));
+    } else if (Array.isArray(opts.excludeIds)) {
+      opts.excludeIds.forEach((id) => excludeSet.add(id));
+    }
+
+    const profile = computeEarprintProfile(list, ratings);
+    if (profile.evaluatedCount === 0) {
+      return {
+        status: 'no_ratings',
+        message: '먼저 발견·평가 탭에서 1명 이상의 화자를 평가해 Earprint를 생성해 주세요.',
+        queue: [],
+        totalCandidates: 0,
+        recommendedCount: 0,
+        randomCount: 0,
+      };
+    }
+
+    const eligible = list.filter((speaker) => {
+      if (!speaker || typeof speaker.id !== 'string') return false;
+      if (scoreEvaluation(ratings[speaker.id]) !== null) return false;
+      if (excludeSet.has(speaker.id)) return false;
+      if (quizOnly && comprehensionMap) {
+        const comp = comprehensionMap[speaker.id];
+        if (!comp || comp.quizAvailable !== true) return false;
+      }
+      return true;
+    });
+
+    if (eligible.length === 0) {
+      return {
+        status: 'no_candidates',
+        message: '예측 테스트할 미평가 화자가 남아 있지 않습니다.',
+        queue: [],
+        totalCandidates: 0,
+        recommendedCount: 0,
+        randomCount: 0,
+      };
+    }
+
+    const eligibleMap = new Map(eligible.map((s) => [s.id, s]));
+    const recResult = recommendSpeakers(list, ratings, { limit: list.length });
+    const rankedRecommendations = recResult.recommendations.filter((rec) =>
+      eligibleMap.has(rec.speaker.id)
+    );
+    const recScoreById = new Map(
+      rankedRecommendations.map((rec) => [rec.speaker.id, rec.matchScore])
+    );
+
+    const remainingIds = new Set(eligible.map((s) => s.id));
+    const queue = [];
+    let currentGroup = startGroup;
+    let recommendedCount = 0;
+    let randomCount = 0;
+
+    while (remainingIds.size > 0) {
+      let chosenSpeaker = null;
+
+      if (currentGroup === 'recommended') {
+        const topRec = rankedRecommendations.find((rec) => remainingIds.has(rec.speaker.id));
+        if (topRec) {
+          chosenSpeaker = topRec.speaker;
+        } else {
+          const fallbackId = Array.from(remainingIds)[0];
+          chosenSpeaker = eligibleMap.get(fallbackId);
+        }
+      } else {
+        const pool = Array.from(remainingIds);
+        const rawRand = Number(rng());
+        const safeRand = Number.isFinite(rawRand)
+          ? Math.min(Math.max(rawRand, 0), 0.999999999999)
+          : 0;
+        const pickIndex = Math.floor(safeRand * pool.length);
+        chosenSpeaker = eligibleMap.get(pool[pickIndex]);
+      }
+
+      if (!chosenSpeaker) break;
+      remainingIds.delete(chosenSpeaker.id);
+
+      const predictedScore = predictScore(profile, chosenSpeaker);
+      queue.push({
+        speaker: chosenSpeaker,
+        group: currentGroup,
+        predictedScore,
+        predictedScorePct: predictedScore === null ? null : Math.round(predictedScore * 100),
+        matchScore: recScoreById.has(chosenSpeaker.id)
+          ? recScoreById.get(chosenSpeaker.id)
+          : null,
+      });
+
+      if (currentGroup === 'recommended') recommendedCount += 1;
+      else randomCount += 1;
+
+      currentGroup = currentGroup === 'recommended' ? 'random' : 'recommended';
+    }
+
+    return {
+      status: 'ready',
+      message: `추천 화자와 무작위 화자를 번갈아 Blind로 제시합니다 (총 ${queue.length}명).`,
+      queue,
+      totalCandidates: queue.length,
+      recommendedCount,
+      randomCount,
+    };
+  }
+
+  function summarizeGroupRecords(records) {
+    const count = records.length;
+    if (count === 0) {
+      return {
+        count: 0,
+        avgActualScore: null,
+        avgActualScorePct: null,
+        quizSampleCount: 0,
+        avgQuizAccuracy: null,
+        avgQuizAccuracyPct: null,
+        avgSubjectiveScore: null,
+        avgSubjectiveScorePct: null,
+        avgSubjectiveComprehension: null,
+        avgPredictedScore: null,
+        avgPredictedScorePct: null,
+        avgAbsError: null,
+        avgAbsErrorPct: null,
+        avgSignedError: null,
+        avgSignedErrorPct: null,
+      };
+    }
+
+    let actualSum = 0;
+    let predSum = 0;
+    let absErrSum = 0;
+    let signedErrSum = 0;
+    let quizAccSum = 0;
+    let quizCount = 0;
+    let subjScoreSum = 0;
+    let subjScoreCount = 0;
+    let subjCompSum = 0;
+    let subjCompCount = 0;
+
+    for (const rec of records) {
+      actualSum += rec.actualScore;
+      predSum += rec.predictedScore;
+      absErrSum += rec.absError;
+      signedErrSum += rec.signedError;
+
+      if (typeof rec.quizAccuracy === 'number' && Number.isFinite(rec.quizAccuracy)) {
+        quizAccSum += rec.quizAccuracy;
+        quizCount += 1;
+      }
+      if (typeof rec.subjectiveScore === 'number' && Number.isFinite(rec.subjectiveScore)) {
+        subjScoreSum += rec.subjectiveScore;
+        subjScoreCount += 1;
+      }
+      if (
+        rec.rating &&
+        typeof rec.rating.comprehension === 'number' &&
+        Number.isFinite(rec.rating.comprehension)
+      ) {
+        subjCompSum += rec.rating.comprehension;
+        subjCompCount += 1;
+      }
+    }
+
+    const avgActualScore = roundTo(actualSum / count, 4);
+    const avgPredictedScore = roundTo(predSum / count, 4);
+    const avgAbsError = roundTo(absErrSum / count, 4);
+    const avgSignedError = roundTo(signedErrSum / count, 4);
+    const avgQuizAccuracy = quizCount > 0 ? roundTo(quizAccSum / quizCount, 4) : null;
+    const avgSubjectiveScore =
+      subjScoreCount > 0 ? roundTo(subjScoreSum / subjScoreCount, 4) : null;
+    const avgSubjectiveComprehension =
+      subjCompCount > 0 ? roundTo(subjCompSum / subjCompCount, 2) : null;
+
+    return {
+      count,
+      avgActualScore,
+      avgActualScorePct: roundTo(avgActualScore * 100, 1),
+      quizSampleCount: quizCount,
+      avgQuizAccuracy,
+      avgQuizAccuracyPct: avgQuizAccuracy === null ? null : roundTo(avgQuizAccuracy * 100, 1),
+      avgSubjectiveScore,
+      avgSubjectiveScorePct:
+        avgSubjectiveScore === null ? null : roundTo(avgSubjectiveScore * 100, 1),
+      avgSubjectiveComprehension,
+      avgPredictedScore,
+      avgPredictedScorePct: roundTo(avgPredictedScore * 100, 1),
+      avgAbsError,
+      avgAbsErrorPct: roundTo(avgAbsError * 100, 1),
+      avgSignedError,
+      avgSignedErrorPct: roundTo(avgSignedError * 100, 1),
+    };
+  }
+
+  /**
+   * Aggregates prediction verification metrics numerically for 'recommended' vs 'random' groups.
+   * Produces pure numeric summaries without any winner/verdict phrasing.
+   */
+  function summarizePredictionReport(records) {
+    const list = Array.isArray(records) ? records : [];
+    const recommendedRecords = [];
+    const randomRecords = [];
+
+    for (const rec of list) {
+      if (!rec || typeof rec !== 'object') continue;
+      if (rec.group !== 'recommended' && rec.group !== 'random') continue;
+      const err = computePredictionError(rec.predictedScore, rec.actualScore);
+      if (!err) continue;
+
+      const normalized = {
+        group: rec.group,
+        predictedScore: err.predictedScore,
+        actualScore: err.actualScore,
+        absError: err.absError,
+        signedError: err.signedError,
+        quizAccuracy:
+          typeof rec.quizAccuracy === 'number' &&
+          Number.isFinite(rec.quizAccuracy) &&
+          rec.quizAccuracy >= 0 &&
+          rec.quizAccuracy <= 1
+            ? rec.quizAccuracy
+            : null,
+        subjectiveScore:
+          typeof rec.subjectiveScore === 'number' &&
+          Number.isFinite(rec.subjectiveScore) &&
+          rec.subjectiveScore >= 0 &&
+          rec.subjectiveScore <= 1
+            ? rec.subjectiveScore
+            : rec.rating
+              ? scoreEvaluation(rec.rating)
+              : null,
+        rating: rec.rating || null,
+      };
+
+      if (rec.group === 'recommended') recommendedRecords.push(normalized);
+      else randomRecords.push(normalized);
+    }
+
+    return {
+      totalCount: recommendedRecords.length + randomRecords.length,
+      recommended: summarizeGroupRecords(recommendedRecords),
+      random: summarizeGroupRecords(randomRecords),
+    };
+  }
+
+  /**
+   * Validates data/comprehension.json structure, segment lengths (40-60s),
+   * question/choice/answerIndex integrity, source excerpts, and alignment with speakers.json.
+   */
+  function validateComprehensionData(compData, speakersData) {
+    const errors = [];
+    const summary = {
+      totalSpeakers: 0,
+      quizAvailableCount: 0,
+      quizUnavailableCount: 0,
+      totalQuestions: 0,
+    };
+
+    if (!compData || typeof compData !== 'object' || !Array.isArray(compData.items)) {
+      return {
+        valid: false,
+        errors: ['Root object must contain an items array.'],
+        summary,
+      };
+    }
+
+    const speakerMap = new Map();
+    if (speakersData && Array.isArray(speakersData.speakers)) {
+      for (const s of speakersData.speakers) {
+        if (s && typeof s.id === 'string') {
+          speakerMap.set(s.id, s);
+        }
+      }
+    }
+
+    const seenSpeakerIds = new Set();
+    summary.totalSpeakers = compData.items.length;
+
+    compData.items.forEach((item, idx) => {
+      const prefix = `items[${idx}]`;
+      if (!item || typeof item !== 'object') {
+        errors.push(`${prefix}: must be an object.`);
+        return;
+      }
+
+      if (typeof item.speakerId !== 'string' || item.speakerId.trim() === '') {
+        errors.push(`${prefix}: missing speakerId.`);
+      } else {
+        if (seenSpeakerIds.has(item.speakerId)) {
+          errors.push(`${prefix}: duplicate speakerId "${item.speakerId}".`);
+        }
+        seenSpeakerIds.add(item.speakerId);
+      }
+
+      if (typeof item.videoId !== 'string' || !VIDEO_ID_REGEX.test(item.videoId)) {
+        errors.push(`${prefix}: invalid videoId "${item.videoId}".`);
+      }
+
+      if (!Number.isInteger(item.startSeconds) || item.startSeconds < 0) {
+        errors.push(`${prefix}: startSeconds must be a non-negative integer.`);
+      }
+      if (!Number.isInteger(item.endSeconds) || item.endSeconds <= item.startSeconds) {
+        errors.push(`${prefix}: endSeconds must be an integer greater than startSeconds.`);
+      }
+
+      const computedDuration = item.endSeconds - item.startSeconds;
+      if (item.durationSeconds !== computedDuration) {
+        errors.push(`${prefix}: durationSeconds must equal endSeconds - startSeconds.`);
+      }
+      if (computedDuration < 40 || computedDuration > 60) {
+        errors.push(`${prefix}: segment duration (${computedDuration}s) must be between 40 and 60 seconds.`);
+      }
+
+      if (speakerMap.size > 0 && typeof item.speakerId === 'string') {
+        const refSpeaker = speakerMap.get(item.speakerId);
+        if (!refSpeaker) {
+          errors.push(`${prefix}: unknown speakerId "${item.speakerId}" not in speakers.json.`);
+        } else {
+          if (item.videoId !== refSpeaker.clip.videoId) {
+            errors.push(`${prefix}: videoId mismatch with speakers.json for "${item.speakerId}".`);
+          }
+          if (item.startSeconds !== refSpeaker.clip.startSeconds) {
+            errors.push(`${prefix}: startSeconds mismatch with speakers.json for "${item.speakerId}".`);
+          }
+        }
+      }
+
+      if (typeof item.quizAvailable !== 'boolean') {
+        errors.push(`${prefix}: quizAvailable must be a boolean.`);
+        return;
+      }
+
+      if (item.quizAvailable) {
+        summary.quizAvailableCount += 1;
+        if (typeof item.sourceExcerpt !== 'string' || item.sourceExcerpt.trim().length < 20) {
+          errors.push(`${prefix}: quizAvailable item must have a non-empty sourceExcerpt (>= 20 chars).`);
+        }
+        if (
+          typeof item.sourceUrl !== 'string' ||
+          (!item.sourceUrl.startsWith('https://') && !item.sourceUrl.startsWith('http://'))
+        ) {
+          errors.push(`${prefix}: quizAvailable item must have a valid http(s) sourceUrl.`);
+        }
+        if (!Array.isArray(item.questions) || item.questions.length !== 2) {
+          errors.push(`${prefix}: quizAvailable item must have exactly 2 questions.`);
+        } else {
+          summary.totalQuestions += item.questions.length;
+          const seenQIds = new Set();
+          item.questions.forEach((q, qIdx) => {
+            const qPrefix = `${prefix}.questions[${qIdx}]`;
+            if (!q || typeof q !== 'object') {
+              errors.push(`${qPrefix}: must be an object.`);
+              return;
+            }
+            if (typeof q.id !== 'string' || q.id.trim() === '') {
+              errors.push(`${qPrefix}: missing id.`);
+            } else if (seenQIds.has(q.id)) {
+              errors.push(`${qPrefix}: duplicate question id "${q.id}".`);
+            } else {
+              seenQIds.add(q.id);
+            }
+            if (typeof q.prompt !== 'string' || q.prompt.trim() === '') {
+              errors.push(`${qPrefix}: missing prompt.`);
+            }
+            if (!Array.isArray(q.choices) || q.choices.length !== 4) {
+              errors.push(`${qPrefix}: must have exactly 4 choices.`);
+            } else {
+              const choiceSet = new Set();
+              q.choices.forEach((c, cIdx) => {
+                if (typeof c !== 'string' || c.trim() === '') {
+                  errors.push(`${qPrefix}.choices[${cIdx}]: must be a non-empty string.`);
+                } else {
+                  choiceSet.add(c.trim());
+                }
+              });
+              if (choiceSet.size !== 4) {
+                errors.push(`${qPrefix}: all 4 choices must be distinct.`);
+              }
+            }
+            if (!Number.isInteger(q.answerIndex) || q.answerIndex < 0 || q.answerIndex > 3) {
+              errors.push(`${qPrefix}: answerIndex must be an integer between 0 and 3.`);
+            }
+          });
+        }
+      } else {
+        summary.quizUnavailableCount += 1;
+        if (!Array.isArray(item.questions) || item.questions.length !== 0) {
+          errors.push(`${prefix}: quizAvailable: false item must have an empty questions array.`);
+        }
+        if (typeof item.reason !== 'string' || item.reason.trim() === '') {
+          errors.push(`${prefix}: quizAvailable: false item must include a reason.`);
+        }
+      }
+    });
+
+    if (speakerMap.size > 0) {
+      speakerMap.forEach((_speaker, speakerId) => {
+        if (!seenSpeakerIds.has(speakerId)) {
+          errors.push(`Missing comprehension entry for speakerId "${speakerId}".`);
+        }
+      });
+    }
+
+    return {
+      valid: errors.length === 0,
+      errors,
+      summary,
+    };
+  }
+
   return {
     CLARITY_SCORES,
     CLARITY_LABELS,
@@ -537,6 +1202,8 @@
     ACCENT_LABELS,
     TOPIC_LABELS,
     FEATURE_WEIGHTS,
+    PREDICTION_WEIGHTS,
+    ACTUAL_SCORE_WEIGHTS,
     HIGH_SCORE_THRESHOLD,
     VIDEO_ID_REGEX,
     formatAccent,
@@ -549,5 +1216,12 @@
     computeEarprintProfile,
     recommendSpeakers,
     validateSpeakersData,
+    predictScore,
+    gradeQuiz,
+    computeActualScore,
+    computePredictionError,
+    buildPredictionSession,
+    summarizePredictionReport,
+    validateComprehensionData,
   };
 });
