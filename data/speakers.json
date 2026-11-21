@@ -1,0 +1,370 @@
+{
+  "version": "1.0",
+  "notes": {
+    "pace": "모든 발화 속도(pace) 태그는 공개 강연 특성 기반의 추정치(추정)이며 음향 측정값이 아닙니다.",
+    "demographics": "나이·성별 등 음성 기반 인구통계 추정은 포함하지 않습니다.",
+    "embedStatus": "재생은 공식 YouTube iframe 임베드만 사용하며, 개별 영상의 실시간 임베드 허용 여부는 현재 환경에서 미확인 상태입니다."
+  },
+  "speakers": [
+    {
+      "id": "ken-robinson",
+      "name": "Sir Ken Robinson",
+      "channel": "TED",
+      "accent": "UK",
+      "pace": "slow",
+      "paceEstimated": true,
+      "paceLabel": "느림 (추정)",
+      "topics": ["education", "creativity"],
+      "clip": {
+        "title": "Do schools kill creativity?",
+        "videoId": "iG9CE55wbtY",
+        "startSeconds": 60,
+        "embedStatus": "unverified"
+      },
+      "moreContent": [
+        {
+          "title": "Why schools need to embrace kids' creativity",
+          "channel": "TED",
+          "videoId": "g4IAa8wZlqU",
+          "url": "https://www.youtube.com/watch?v=g4IAa8wZlqU"
+        },
+        {
+          "title": "How to escape education's death valley",
+          "channel": "unknown",
+          "videoId": "I7LRbXuR0Gk",
+          "url": "https://www.youtube.com/watch?v=I7LRbXuR0Gk"
+        }
+      ]
+    },
+    {
+      "id": "julian-treasure",
+      "name": "Julian Treasure",
+      "channel": "TED",
+      "accent": "UK",
+      "pace": "medium",
+      "paceEstimated": true,
+      "paceLabel": "보통 (추정)",
+      "topics": ["communication", "creativity"],
+      "clip": {
+        "title": "5 ways to listen better",
+        "videoId": "cSohjlYQI2A",
+        "startSeconds": 45,
+        "embedStatus": "unverified"
+      },
+      "moreContent": [
+        {
+          "title": "Why architects need to use their ears",
+          "channel": "TED",
+          "videoId": "y5nbWUOc9tY",
+          "url": "https://www.youtube.com/watch?v=y5nbWUOc9tY"
+        },
+        {
+          "title": "Shh! Sound health in 8 steps",
+          "channel": "TED",
+          "videoId": "ELgvDMTKyBE",
+          "url": "https://www.youtube.com/watch?v=ELgvDMTKyBE"
+        }
+      ]
+    },
+    {
+      "id": "hannah-fry",
+      "name": "Hannah Fry",
+      "channel": "TED",
+      "accent": "UK",
+      "pace": "fast",
+      "paceEstimated": true,
+      "paceLabel": "빠름 (추정)",
+      "topics": ["science", "technology"],
+      "clip": {
+        "title": "The mathematics of love",
+        "videoId": "yFVXsjVdvmY",
+        "startSeconds": 40,
+        "embedStatus": "unverified"
+      },
+      "moreContent": [
+        {
+          "title": "Is life really that complex? (TEDxUCL)",
+          "channel": "TEDx Talks",
+          "videoId": "LnQYJa9-aR0",
+          "url": "https://www.youtube.com/watch?v=LnQYJa9-aR0"
+        },
+        {
+          "title": "Christmas Lectures 2019: How to Get Lucky",
+          "channel": "The Royal Institution",
+          "videoId": "_q4DrUHKC0Q",
+          "url": "https://www.youtube.com/watch?v=_q4DrUHKC0Q"
+        }
+      ]
+    },
+    {
+      "id": "celeste-headlee",
+      "name": "Celeste Headlee",
+      "channel": "TED",
+      "accent": "US",
+      "pace": "medium",
+      "paceEstimated": true,
+      "paceLabel": "보통 (추정)",
+      "topics": ["communication", "psychology"],
+      "clip": {
+        "title": "10 ways to have a better conversation",
+        "videoId": "R1vskiVDwl4",
+        "startSeconds": 65,
+        "embedStatus": "unverified"
+      },
+      "moreContent": [
+        {
+          "title": "The keys to a great conversation",
+          "channel": "TED",
+          "videoId": "bfGQpe6FQcw",
+          "url": "https://www.youtube.com/watch?v=bfGQpe6FQcw"
+        },
+        {
+          "title": "We Need to Talk: How To Have Conversations That Matter",
+          "channel": "Talks at Google",
+          "videoId": "ydQd7KxrFDM",
+          "url": "https://www.youtube.com/watch?v=ydQd7KxrFDM"
+        }
+      ]
+    },
+    {
+      "id": "tim-urban",
+      "name": "Tim Urban",
+      "channel": "TED",
+      "accent": "US",
+      "pace": "fast",
+      "paceEstimated": true,
+      "paceLabel": "빠름 (추정)",
+      "topics": ["psychology", "communication"],
+      "clip": {
+        "title": "Inside the Mind of a Master Procrastinator",
+        "videoId": "arj7oStGLkU",
+        "startSeconds": 45,
+        "embedStatus": "unverified"
+      },
+      "moreContent": [
+        {
+          "title": "Why you procrastinate -- and how to still get things done",
+          "channel": "TED",
+          "videoId": "Rk5C149J9C0",
+          "url": "https://www.youtube.com/watch?v=Rk5C149J9C0"
+        },
+        {
+          "title": "Tim Urban of Wait But Why",
+          "channel": "Y Combinator",
+          "videoId": "7a9lsGtVziM",
+          "url": "https://www.youtube.com/watch?v=7a9lsGtVziM"
+        }
+      ]
+    },
+    {
+      "id": "dan-gilbert",
+      "name": "Dan Gilbert",
+      "channel": "TED",
+      "accent": "US",
+      "pace": "medium",
+      "paceEstimated": true,
+      "paceLabel": "보통 (추정)",
+      "topics": ["psychology", "science"],
+      "clip": {
+        "title": "The surprising science of happiness",
+        "videoId": "4q1dgn_C0AU",
+        "startSeconds": 50,
+        "embedStatus": "unverified"
+      },
+      "moreContent": [
+        {
+          "title": "Why we make bad decisions",
+          "channel": "TED",
+          "videoId": "c-4flnuxNV4",
+          "url": "https://www.youtube.com/watch?v=c-4flnuxNV4"
+        },
+        {
+          "title": "The psychology of your future self",
+          "channel": "TED",
+          "videoId": "XNbaR54Gpj4",
+          "url": "https://www.youtube.com/watch?v=XNbaR54Gpj4"
+        }
+      ]
+    },
+    {
+      "id": "david-malan",
+      "name": "David J. Malan",
+      "channel": "CS50",
+      "accent": "US",
+      "pace": "fast",
+      "paceEstimated": true,
+      "paceLabel": "빠름 (추정)",
+      "topics": ["technology", "education"],
+      "clip": {
+        "title": "Teaching CS50 with AI",
+        "videoId": "ggshaJcOc6Y",
+        "startSeconds": 60,
+        "embedStatus": "unverified"
+      },
+      "moreContent": [
+        {
+          "title": "Harvard CS50's Introduction to Programming with Python",
+          "channel": "unknown",
+          "videoId": "nLRL_NcnK-4",
+          "url": "https://www.youtube.com/watch?v=nLRL_NcnK-4"
+        },
+        {
+          "title": "CS50 Business - Lecture 0 - Interpreting Information",
+          "channel": "CS50",
+          "videoId": "cn29dFtPSlo",
+          "url": "https://www.youtube.com/watch?v=cn29dFtPSlo"
+        }
+      ]
+    },
+    {
+      "id": "malcolm-gladwell",
+      "name": "Malcolm Gladwell",
+      "channel": "TED",
+      "accent": "Canadian",
+      "pace": "slow",
+      "paceEstimated": true,
+      "paceLabel": "느림 (추정)",
+      "topics": ["psychology", "society"],
+      "clip": {
+        "title": "The unheard story of David and Goliath",
+        "videoId": "ziGD7vQOwl8",
+        "startSeconds": 40,
+        "embedStatus": "unverified"
+      },
+      "moreContent": [
+        {
+          "title": "The strange tale of the Norden bombsight",
+          "channel": "TED",
+          "videoId": "HpiZTvlWx2g",
+          "url": "https://www.youtube.com/watch?v=HpiZTvlWx2g"
+        },
+        {
+          "title": "The Tipping Point I Got Wrong",
+          "channel": "TED",
+          "videoId": "RmXrwKydM9k",
+          "url": "https://www.youtube.com/watch?v=RmXrwKydM9k"
+        }
+      ]
+    },
+    {
+      "id": "sugata-mitra",
+      "name": "Sugata Mitra",
+      "channel": "TED",
+      "accent": "Indian",
+      "pace": "slow",
+      "paceEstimated": true,
+      "paceLabel": "느림 (추정)",
+      "topics": ["education", "technology"],
+      "clip": {
+        "title": "Build a School in the Cloud",
+        "videoId": "y3jYVe1RGaU",
+        "startSeconds": 60,
+        "embedStatus": "unverified"
+      },
+      "moreContent": [
+        {
+          "title": "Can kids teach themselves?",
+          "channel": "TED",
+          "videoId": "xRb7_ffl2D0",
+          "url": "https://www.youtube.com/watch?v=xRb7_ffl2D0"
+        },
+        {
+          "title": "The child-driven education",
+          "channel": "EEF thailand",
+          "videoId": "nsKPvQCMATw",
+          "url": "https://www.youtube.com/watch?v=nsKPvQCMATw"
+        }
+      ]
+    },
+    {
+      "id": "hans-rosling",
+      "name": "Hans Rosling",
+      "channel": "TED",
+      "accent": "Swedish",
+      "pace": "slow",
+      "paceEstimated": true,
+      "paceLabel": "느림 (추정)",
+      "topics": ["science", "society"],
+      "clip": {
+        "title": "Global population growth, box by box",
+        "videoId": "fTznEIZRkLg",
+        "startSeconds": 50,
+        "embedStatus": "unverified"
+      },
+      "moreContent": [
+        {
+          "title": "The good news of the decade?",
+          "channel": "TED",
+          "videoId": "OT9poH_D2Iw",
+          "url": "https://www.youtube.com/watch?v=OT9poH_D2Iw"
+        },
+        {
+          "title": "The best stats you've ever seen",
+          "channel": "TED-Ed",
+          "videoId": "usdJgEwMinM",
+          "url": "https://www.youtube.com/watch?v=usdJgEwMinM"
+        }
+      ]
+    },
+    {
+      "id": "david-mcwilliams",
+      "name": "David McWilliams",
+      "channel": "TED",
+      "accent": "Irish",
+      "pace": "fast",
+      "paceEstimated": true,
+      "paceLabel": "빠름 (추정)",
+      "topics": ["economics", "society"],
+      "clip": {
+        "title": "The Power of Unconventional Thinking",
+        "videoId": "hUPrUJ4F_Ro",
+        "startSeconds": 45,
+        "embedStatus": "unverified"
+      },
+      "moreContent": [
+        {
+          "title": "Follow the Money",
+          "channel": "Talks at Google",
+          "videoId": "ZYeFXOpHY4Q",
+          "url": "https://www.youtube.com/watch?v=ZYeFXOpHY4Q"
+        },
+        {
+          "title": "What Poets Teach Us about Economics",
+          "channel": "unknown",
+          "videoId": "ou_VMdmbVuA",
+          "url": "https://www.youtube.com/watch?v=ou_VMdmbVuA"
+        }
+      ]
+    },
+    {
+      "id": "hugh-evans",
+      "name": "Hugh Evans",
+      "channel": "Global Citizen",
+      "accent": "Australian",
+      "pace": "medium",
+      "paceEstimated": true,
+      "paceLabel": "보통 (추정)",
+      "topics": ["society", "economics"],
+      "clip": {
+        "title": "TED TALK - Hugh Evans - CEO of Global Citizen",
+        "videoId": "joKwx1WnQmo",
+        "startSeconds": 55,
+        "embedStatus": "unverified"
+      },
+      "moreContent": [
+        {
+          "title": "CEO Hugh Evans on Driving Global Change",
+          "channel": "unknown",
+          "videoId": "38WWws0bxD8",
+          "url": "https://www.youtube.com/watch?v=38WWws0bxD8"
+        },
+        {
+          "title": "Hugh Evans & Hugh Jackman Reflect on Global Citizen's Impact",
+          "channel": "unknown",
+          "videoId": "LDQaZx2KVvs",
+          "url": "https://www.youtube.com/watch?v=LDQaZx2KVvs"
+        }
+      ]
+    }
+  ]
+}
