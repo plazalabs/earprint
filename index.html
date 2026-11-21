@@ -33,6 +33,12 @@
         <button type="button" class="nav-btn" data-tab="explorer" id="tab-explorer">
           4. 콘텐츠
         </button>
+        <button type="button" class="nav-btn" data-tab="predict" id="tab-predict">
+          5. 예측 테스트
+        </button>
+        <button type="button" class="nav-btn" data-tab="report" id="tab-report">
+          6. 검증 리포트 <span class="nav-badge" id="badge-report">0</span>
+        </button>
       </nav>
     </div>
   </header>
@@ -234,6 +240,232 @@
       </div>
 
       <div id="explorer-list" class="explorer-list"></div>
+    </section>
+
+    <!-- SECTION 6: Blind Prediction Mode -->
+    <section class="panel" id="panel-predict" aria-labelledby="heading-predict">
+      <div class="section-head">
+        <h2 id="heading-predict">Blind 예측 테스트</h2>
+        <p class="section-desc">
+          화자의 이름·채널·악센트·발화 속도를 숨긴 채 지정 구간을 듣고 평가합니다. 추천 화자와 무작위 화자를 번갈아 제시하며, 제출 후에만 정체와 예측 오차를 공개합니다.
+        </p>
+      </div>
+
+      <div id="predict-empty" class="empty-state is-hidden"></div>
+
+      <article class="card player-card is-hidden" id="predict-active-card">
+        <div class="speaker-header">
+          <div>
+            <p class="speaker-channel" id="predict-session-progress">Blind 세션 1 / 1</p>
+            <h3 class="speaker-name" id="predict-blind-label">Blind 화자 #1</h3>
+            <p class="clip-title" id="predict-blind-subtitle">이름·채널·악센트·발화 속도 비공개 (제출 후 공개)</p>
+          </div>
+          <span class="status-tag is-blind" id="predict-pre-status">사전 예측 기록됨</span>
+        </div>
+
+        <div class="video-frame-wrap">
+          <iframe
+            id="predict-youtube-player"
+            class="video-frame"
+            title="Blind 청취 테스트 클립"
+            src=""
+            loading="lazy"
+            referrerpolicy="strict-origin-when-cross-origin"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            allowfullscreen
+          ></iframe>
+        </div>
+
+        <div class="clip-meta-row">
+          <span class="meta-note" id="predict-segment-note">지정 구간: -</span>
+          <span class="meta-note" id="predict-quiz-badge">객관식 문항 확인 중</span>
+        </div>
+
+        <form class="test-form" id="predict-form">
+          <div class="form-group">
+            <span class="form-label">1) 얼마나 잘 들렸나요? (주관 평가)</span>
+            <div class="clarity-options" role="radiogroup" aria-label="Blind 청취 명확도">
+              <label class="choice-chip">
+                <input type="radio" name="predict_clarity" value="clear">
+                <span>잘 들림</span>
+              </label>
+              <label class="choice-chip">
+                <input type="radio" name="predict_clarity" value="moderate">
+                <span>보통</span>
+              </label>
+              <label class="choice-chip">
+                <input type="radio" name="predict_clarity" value="hard">
+                <span>잘 안 들림</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <span class="form-label">2) 주관적 내용 이해도 (1~5)</span>
+            <div class="scale-options" role="radiogroup" aria-label="Blind 내용 이해도 1에서 5">
+              <label class="scale-chip">
+                <input type="radio" name="predict_comprehension" value="1">
+                <span>1</span>
+              </label>
+              <label class="scale-chip">
+                <input type="radio" name="predict_comprehension" value="2">
+                <span>2</span>
+              </label>
+              <label class="scale-chip">
+                <input type="radio" name="predict_comprehension" value="3">
+                <span>3</span>
+              </label>
+              <label class="scale-chip">
+                <input type="radio" name="predict_comprehension" value="4">
+                <span>4</span>
+              </label>
+              <label class="scale-chip">
+                <input type="radio" name="predict_comprehension" value="5">
+                <span>5</span>
+              </label>
+            </div>
+            <div class="scale-hints">
+              <span>1: 거의 이해 못함</span>
+              <span>5: 대부분 이해함</span>
+            </div>
+          </div>
+
+          <div class="quiz-section" id="predict-quiz-section"></div>
+
+          <div class="form-actions predict-submit-row">
+            <button type="submit" class="btn btn-primary" id="btn-submit-predict">
+              제출하고 결과·정체 공개
+            </button>
+          </div>
+          <p class="form-feedback" id="predict-feedback" aria-live="polite"></p>
+        </form>
+      </article>
+
+      <!-- Post-submission Reveal Card (hidden until submission) -->
+      <article class="card reveal-card is-hidden" id="predict-reveal-card" aria-live="polite">
+        <div class="speaker-header">
+          <div>
+            <p class="speaker-channel" id="reveal-channel">채널</p>
+            <h3 class="speaker-name" id="reveal-name">화자 정체 공개</h3>
+            <p class="clip-title" id="reveal-clip-title"></p>
+          </div>
+          <span class="status-tag is-rated" id="reveal-group-badge">배정 집단</span>
+        </div>
+
+        <div class="tag-row" id="reveal-tags"></div>
+
+        <div class="compare-block">
+          <h4 class="subcard-title">예측 vs 실제 대조</h4>
+          <div class="kpi-grid">
+            <div class="kpi-item">
+              <span class="kpi-label">사전 예측 점수</span>
+              <strong class="kpi-value" id="reveal-predicted">-</strong>
+            </div>
+            <div class="kpi-item">
+              <span class="kpi-label">실제 종합 점수</span>
+              <strong class="kpi-value" id="reveal-actual">-</strong>
+            </div>
+            <div class="kpi-item">
+              <span class="kpi-label">예측 오차</span>
+              <strong class="kpi-value" id="reveal-error">-</strong>
+            </div>
+          </div>
+          <div class="actual-breakdown" id="reveal-breakdown"></div>
+        </div>
+
+        <div class="reveal-quiz-block is-hidden" id="reveal-quiz-block"></div>
+
+        <div class="clip-meta-row">
+          <span class="meta-note" id="reveal-segment-info">지정 구간</span>
+          <a
+            id="reveal-original-link"
+            class="text-link"
+            href="#"
+            target="_blank"
+            rel="noopener noreferrer"
+          >YouTube에서 직접 열기 ↗</a>
+        </div>
+
+        <div class="form-actions">
+          <button type="button" class="btn btn-primary" id="btn-next-predict">
+            다음 Blind 화자 →
+          </button>
+          <button type="button" class="btn btn-secondary" data-goto="report">
+            검증 리포트 보기 →
+          </button>
+        </div>
+      </article>
+    </section>
+
+    <!-- SECTION 7: Prediction Verification Report -->
+    <section class="panel" id="panel-report" aria-labelledby="heading-report">
+      <div class="section-head">
+        <h2 id="heading-report">예측 검증 리포트</h2>
+        <p class="section-desc">
+          예측 테스트 기록은 <code>localStorage: earprint_prediction_v1</code>에 분리 저장됩니다. 추천 집단과 무작위 집단의 수치를 나란히 표시합니다.
+        </p>
+      </div>
+
+      <article class="card">
+        <h3 class="card-title">추천 vs 무작위 수치 비교</h3>
+        <div class="report-table-wrap">
+          <table class="report-table" aria-label="추천 집단과 무작위 집단 수치 비교">
+            <thead>
+              <tr>
+                <th scope="col">지표</th>
+                <th scope="col">추천</th>
+                <th scope="col">무작위</th>
+              </tr>
+            </thead>
+            <tbody id="report-comparison-body">
+              <tr>
+                <th scope="row">표본 수 (N)</th>
+                <td id="rep-rec-count">0</td>
+                <td id="rep-rnd-count">0</td>
+              </tr>
+              <tr>
+                <th scope="row">실제 종합 점수 평균</th>
+                <td id="rep-rec-actual">-</td>
+                <td id="rep-rnd-actual">-</td>
+              </tr>
+              <tr>
+                <th scope="row">객관식 정답률 평균 (표본)</th>
+                <td id="rep-rec-quiz">-</td>
+                <td id="rep-rnd-quiz">-</td>
+              </tr>
+              <tr>
+                <th scope="row">주관 이해도 평균 (1~5)</th>
+                <td id="rep-rec-comp">-</td>
+                <td id="rep-rnd-comp">-</td>
+              </tr>
+              <tr>
+                <th scope="row">사전 예측 점수 평균</th>
+                <td id="rep-rec-pred">-</td>
+                <td id="rep-rnd-pred">-</td>
+              </tr>
+              <tr>
+                <th scope="row">예측 오차 평균 (MAE)</th>
+                <td id="rep-rec-mae">-</td>
+                <td id="rep-rnd-mae">-</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </article>
+
+      <article class="card">
+        <h3 class="card-title"><span>Blind 예측 기록 (<span id="report-total-count">0</span>건)</span></h3>
+        <div id="report-history-list" class="history-list"></div>
+      </article>
+
+      <div class="panel-footer-actions">
+        <button type="button" class="btn btn-primary" data-goto="predict">
+          Blind 예측 테스트 계속하기 →
+        </button>
+        <button type="button" class="btn btn-danger-outline" id="btn-reset-predictions">
+          예측 기록 초기화
+        </button>
+      </div>
     </section>
   </main>
 
