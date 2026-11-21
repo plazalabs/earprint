@@ -663,11 +663,14 @@ code {
 
 .bar-row-label {
   font-weight: 700;
+  white-space: nowrap;
 }
 
 .bar-row-stat {
-  font-size: 0.8rem;
+  font-size: 0.76rem;
   color: var(--ink-secondary);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 .bar-track {
