@@ -694,6 +694,75 @@ code {
   font-size: 0.88rem;
 }
 
+/* Earprint Listening Traits */
+.traits-section {
+  margin-top: 16px;
+}
+
+.traits-gate-card {
+  border-style: dashed;
+  border-color: var(--border-strong);
+  background-color: var(--surface);
+  text-align: center;
+  padding: 20px 14px;
+}
+
+.traits-gate-title {
+  margin: 0 0 6px;
+  font-size: 0.94rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.traits-gate-sub {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--ink-muted);
+}
+
+.trait-observation {
+  margin: 0 0 12px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background-color: var(--surface-subtle);
+  font-size: 0.83rem;
+  color: var(--ink);
+}
+
+.acoustic-trait-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.acoustic-trait-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-sm);
+  background-color: var(--surface-subtle);
+}
+
+.acoustic-trait-label {
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.acoustic-trait-status {
+  padding: 2px 8px;
+  border-radius: 6px;
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--ink-muted);
+}
+
 /* Recommendations & Explorer */
 .rec-list,
 .explorer-list {

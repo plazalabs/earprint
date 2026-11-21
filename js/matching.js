@@ -64,6 +64,29 @@
   const VIDEO_ID_REGEX = /^[A-Za-z0-9_-]{11}$/;
   const FORBIDDEN_DEMOGRAPHIC_KEYS = Object.freeze(['age', 'gender', 'sex']);
 
+  const ALGORITHM_VERSION = 'v1';
+  const ALGORITHM_VERSION_LABEL = '예측 모델 v1';
+  const EARPRINT_MIN_TRAIT_SAMPLES = 3;
+  const EARPRINT_GATE_MESSAGE = '분석 중 — 데이터가 쌓이면 열립니다';
+  const ACOUSTIC_UNMEASURED_STATUS = '분석 중 — 아직 측정하지 않는 특성';
+  const UNMEASURED_ACOUSTIC_TRAITS = Object.freeze([
+    Object.freeze({
+      key: 'consonant_clarity',
+      label: '자음 명료도',
+      status: ACOUSTIC_UNMEASURED_STATUS,
+    }),
+    Object.freeze({
+      key: 'sentence_stress',
+      label: '문장 강세',
+      status: ACOUSTIC_UNMEASURED_STATUS,
+    }),
+    Object.freeze({
+      key: 'connected_speech',
+      label: '연결 발음',
+      status: ACOUSTIC_UNMEASURED_STATUS,
+    }),
+  ]);
+
   function formatAccent(accent) {
     return ACCENT_LABELS[accent] || accent || ACCENT_LABELS.unknown;
   }
@@ -217,8 +240,56 @@
       });
   }
 
+  function aggregateByMultiFeature(entries, keysGetter, labelGetter) {
+    const groups = new Map();
+    for (const item of entries) {
+      const rawKeys = keysGetter(item.speaker);
+      if (!Array.isArray(rawKeys) || rawKeys.length === 0) continue;
+      const uniqueKeys = Array.from(new Set(rawKeys.filter((k) => typeof k === 'string' && k.trim() !== '')));
+      for (const key of uniqueKeys) {
+        if (!groups.has(key)) {
+          groups.set(key, {
+            key,
+            label: labelGetter(key),
+            count: 0,
+            scoreSum: 0,
+            compSum: 0,
+            clearCount: 0,
+            moderateCount: 0,
+            hardCount: 0,
+          });
+        }
+        const g = groups.get(key);
+        g.count += 1;
+        g.scoreSum += item.score;
+        g.compSum += Number(item.rating.comprehension);
+        if (item.rating.clarity === 'clear') g.clearCount += 1;
+        else if (item.rating.clarity === 'moderate') g.moderateCount += 1;
+        else if (item.rating.clarity === 'hard') g.hardCount += 1;
+      }
+    }
+
+    return Array.from(groups.values())
+      .map((g) => ({
+        key: g.key,
+        label: g.label,
+        count: g.count,
+        avgScore: roundTo(g.scoreSum / g.count, 4),
+        avgScorePct: Math.round((g.scoreSum / g.count) * 100),
+        avgComprehension: roundTo(g.compSum / g.count, 2),
+        clearCount: g.clearCount,
+        moderateCount: g.moderateCount,
+        hardCount: g.hardCount,
+      }))
+      .sort((a, b) => {
+        if (b.avgScore !== a.avgScore) return b.avgScore - a.avgScore;
+        if (b.count !== a.count) return b.count - a.count;
+        return a.key.localeCompare(b.key);
+      });
+  }
+
   /**
-   * Builds a user's Earprint summary broken down by accent and estimated pace.
+   * Builds a user's Earprint summary broken down by accent, estimated pace, and topics.
    */
   function computeEarprintProfile(speakers, ratingsMap) {
     const list = Array.isArray(speakers) ? speakers : [];
@@ -245,8 +316,10 @@
         avgComprehension: 0,
         byAccent: [],
         byPace: [],
+        byTopic: [],
         topAccent: null,
         topPace: null,
+        topTopic: null,
         summaryText: '아직 평가한 화자가 없습니다. 클립을 듣고 평가하면 나의 Earprint가 생성됩니다.',
       };
     }
@@ -266,13 +339,19 @@
       (s) => s.pace,
       formatPace
     );
+    const byTopic = aggregateByMultiFeature(
+      evaluatedEntries,
+      (s) => s.topics,
+      formatTopic
+    );
 
     const topAccent = byAccent[0] || null;
     const topPace = byPace[0] || null;
+    const topTopic = byTopic[0] || null;
 
     let summaryText = `총 ${evaluatedCount}명의 화자를 평가했습니다.`;
     if (topAccent && topPace) {
-      summaryText = `현재까지 ${evaluatedCount}명 평가 기준, ${topAccent.label} 악센트(적합도 ${topAccent.avgScorePct}%)와 ${topPace.label} 속도(적합도 ${topPace.avgScorePct}%) 화자를 가장 잘 듣는 경향이 보입니다.`;
+      summaryText = `현재까지 ${evaluatedCount}명 평가 기준, ${topAccent.label} 악센트(적합도 ${topAccent.avgScorePct}%)와 ${topPace.label} 속도(적합도 ${topPace.avgScorePct}%)에서 상대적으로 높은 이해도를 보였습니다.`;
     }
 
     return {
@@ -283,9 +362,77 @@
       avgComprehension,
       byAccent,
       byPace,
+      byTopic,
       topAccent,
       topPace,
+      topTopic,
       summaryText,
+    };
+  }
+
+  function buildTraitObservation(dimensionName, topItem) {
+    if (!topItem) return null;
+    if (topItem.avgScore >= HIGH_SCORE_THRESHOLD) {
+      return `평가 ${topItem.count}건 기준 ${topItem.label} ${dimensionName}에서 높은 이해도를 보였습니다 (적합도 ${topItem.avgScorePct}%).`;
+    }
+    return `평가 ${topItem.count}건 기준 ${topItem.label} ${dimensionName}의 적합도가 ${topItem.avgScorePct}%로 기록되었습니다.`;
+  }
+
+  /**
+   * Builds measurable listening traits from an Earprint profile with a minimum-sample gate
+   * and explicit unmeasured placeholders for acoustic traits.
+   */
+  function buildEarprintTraits(profile, options) {
+    const opts = options && typeof options === 'object' ? options : {};
+    const minSamples =
+      Number.isInteger(opts.minSamples) && opts.minSamples > 0
+        ? opts.minSamples
+        : EARPRINT_MIN_TRAIT_SAMPLES;
+    const evaluatedCount =
+      profile && Number.isFinite(profile.evaluatedCount) ? profile.evaluatedCount : 0;
+    const unlocked = evaluatedCount >= minSamples;
+
+    if (!unlocked) {
+      return {
+        unlocked: false,
+        minSamples,
+        evaluatedCount,
+        gateMessage: EARPRINT_GATE_MESSAGE,
+        measurable: null,
+        acousticTraits: [],
+      };
+    }
+
+    const byAccent = Array.isArray(profile.byAccent) ? profile.byAccent : [];
+    const byPace = Array.isArray(profile.byPace) ? profile.byPace : [];
+    const byTopic = Array.isArray(profile.byTopic) ? profile.byTopic : [];
+
+    return {
+      unlocked: true,
+      minSamples,
+      evaluatedCount,
+      gateMessage: null,
+      measurable: {
+        accent: {
+          title: '악센트별 적합도',
+          estimated: false,
+          items: byAccent,
+          observation: buildTraitObservation('악센트', byAccent[0] || null),
+        },
+        pace: {
+          title: '발화 속도별 적합도',
+          estimated: true,
+          items: byPace,
+          observation: buildTraitObservation('발화 속도', byPace[0] || null),
+        },
+        topic: {
+          title: '주제별 적합도',
+          estimated: false,
+          items: byTopic,
+          observation: buildTraitObservation('주제', byTopic[0] || null),
+        },
+      },
+      acousticTraits: UNMEASURED_ACOUSTIC_TRAITS.map((trait) => ({ ...trait })),
     };
   }
 
@@ -1206,6 +1353,12 @@
     ACTUAL_SCORE_WEIGHTS,
     HIGH_SCORE_THRESHOLD,
     VIDEO_ID_REGEX,
+    ALGORITHM_VERSION,
+    ALGORITHM_VERSION_LABEL,
+    EARPRINT_MIN_TRAIT_SAMPLES,
+    EARPRINT_GATE_MESSAGE,
+    ACOUSTIC_UNMEASURED_STATUS,
+    UNMEASURED_ACOUSTIC_TRAITS,
     formatAccent,
     formatPace,
     formatTopic,
@@ -1214,6 +1367,7 @@
     computeSpeakerSimilarity,
     buildRecommendationReason,
     computeEarprintProfile,
+    buildEarprintTraits,
     recommendSpeakers,
     validateSpeakersData,
     predictScore,

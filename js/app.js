@@ -48,8 +48,18 @@
     epScore: document.getElementById('ep-score'),
     epComp: document.getElementById('ep-comp'),
     epSummaryText: document.getElementById('ep-summary-text'),
+    epTraitsStatus: document.getElementById('ep-traits-status'),
+    epTraitsGate: document.getElementById('ep-traits-gate'),
+    epTraitsGateText: document.getElementById('ep-traits-gate-text'),
+    epTraitsGateProgress: document.getElementById('ep-traits-gate-progress'),
+    epTraitsContent: document.getElementById('ep-traits-content'),
+    epAccentObs: document.getElementById('ep-accent-obs'),
     epAccentBars: document.getElementById('ep-accent-bars'),
+    epPaceObs: document.getElementById('ep-pace-obs'),
     epPaceBars: document.getElementById('ep-pace-bars'),
+    epTopicObs: document.getElementById('ep-topic-obs'),
+    epTopicBars: document.getElementById('ep-topic-bars'),
+    epAcousticTraits: document.getElementById('ep-acoustic-traits'),
     btnResetRatings: document.getElementById('btn-reset-ratings'),
     matchingStatusText: document.getElementById('matching-status-text'),
     recommendationsList: document.getElementById('recommendations-list'),
@@ -302,7 +312,7 @@
         createEl(
           'span',
           'bar-row-stat',
-          `적합도 ${item.avgScorePct}% · 이해도 ${item.avgComprehension}/5 (${item.count}명)`
+          `적합도 ${item.avgScorePct}% · 이해도 ${item.avgComprehension}/5 · 근거 평가 ${item.count}건`
         )
       );
 
@@ -317,6 +327,27 @@
     });
   }
 
+  function renderTraitObservation(el, text) {
+    if (!el) return;
+    if (text) {
+      el.textContent = text;
+      el.classList.remove('is-hidden');
+    } else {
+      el.textContent = '';
+      el.classList.add('is-hidden');
+    }
+  }
+
+  function renderAcousticTraits(container, traits) {
+    container.innerHTML = '';
+    traits.forEach((trait) => {
+      const row = createEl('div', 'acoustic-trait-row');
+      row.appendChild(createEl('span', 'acoustic-trait-label', trait.label));
+      row.appendChild(createEl('span', 'acoustic-trait-status', trait.status));
+      container.appendChild(row);
+    });
+  }
+
   function renderEarprint(profile) {
     els.headerProgress.textContent = `평가 ${profile.evaluatedCount} / ${profile.totalCount}`;
     els.epCount.textContent = `${profile.evaluatedCount} / ${profile.totalCount}`;
@@ -324,8 +355,34 @@
     els.epComp.textContent = profile.evaluatedCount > 0 ? `${profile.avgComprehension} / 5` : '-';
     els.epSummaryText.textContent = profile.summaryText;
 
-    renderFeatureBars(els.epAccentBars, profile.byAccent);
-    renderFeatureBars(els.epPaceBars, profile.byPace);
+    const traits = Matching.buildEarprintTraits(profile);
+    if (!traits.unlocked) {
+      els.epTraitsStatus.textContent = `평가 ${traits.evaluatedCount} / ${traits.minSamples}건`;
+      els.epTraitsGateText.textContent = traits.gateMessage;
+      els.epTraitsGateProgress.textContent = `현재 평가 ${traits.evaluatedCount}건 (최소 ${traits.minSamples}건 이상 평가 시 청취 특성이 표시됩니다)`;
+      els.epTraitsGate.classList.remove('is-hidden');
+      els.epTraitsContent.classList.add('is-hidden');
+      els.epAccentBars.innerHTML = '';
+      els.epPaceBars.innerHTML = '';
+      els.epTopicBars.innerHTML = '';
+      els.epAcousticTraits.innerHTML = '';
+      return;
+    }
+
+    els.epTraitsStatus.textContent = `평가 ${traits.evaluatedCount}건 기준`;
+    els.epTraitsGate.classList.add('is-hidden');
+    els.epTraitsContent.classList.remove('is-hidden');
+
+    renderTraitObservation(els.epAccentObs, traits.measurable.accent.observation);
+    renderFeatureBars(els.epAccentBars, traits.measurable.accent.items);
+
+    renderTraitObservation(els.epPaceObs, traits.measurable.pace.observation);
+    renderFeatureBars(els.epPaceBars, traits.measurable.pace.items);
+
+    renderTraitObservation(els.epTopicObs, traits.measurable.topic.observation);
+    renderFeatureBars(els.epTopicBars, traits.measurable.topic.items);
+
+    renderAcousticTraits(els.epAcousticTraits, traits.acousticTraits);
   }
 
   function renderRecommendations(matchResult) {

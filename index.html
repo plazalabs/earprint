@@ -191,16 +191,44 @@
         <p class="summary-sentence" id="ep-summary-text"></p>
       </article>
 
-      <article class="card">
-        <h3 class="card-title">악센트별 청취 적합도</h3>
-        <div id="ep-accent-bars" class="bar-list"></div>
-      </article>
+      <div class="traits-section" id="ep-traits-section" aria-labelledby="heading-ep-traits">
+        <div class="roster-head">
+          <h3 id="heading-ep-traits">청취 특성</h3>
+          <span class="roster-hint" id="ep-traits-status">평가 표본 확인 중</span>
+        </div>
 
-      <article class="card">
-        <h3 class="card-title">발화 속도별 청취 적합도 <span class="est-pill">추정</span></h3>
-        <p class="card-note">속도 태그는 강연 특성 기반의 추정치이며 음향 측정값이 아닙니다.</p>
-        <div id="ep-pace-bars" class="bar-list"></div>
-      </article>
+        <article class="card traits-gate-card is-hidden" id="ep-traits-gate">
+          <p class="traits-gate-title" id="ep-traits-gate-text">분석 중 — 데이터가 쌓이면 열립니다</p>
+          <p class="traits-gate-sub" id="ep-traits-gate-progress"></p>
+        </article>
+
+        <div id="ep-traits-content" class="is-hidden">
+          <article class="card">
+            <h3 class="card-title">악센트별 적합도</h3>
+            <p class="trait-observation is-hidden" id="ep-accent-obs"></p>
+            <div id="ep-accent-bars" class="bar-list"></div>
+          </article>
+
+          <article class="card">
+            <h3 class="card-title">발화 속도별 적합도 <span class="est-pill">추정</span></h3>
+            <p class="card-note">속도 태그는 강연 특성 기반의 추정치이며 음향 측정값이 아닙니다.</p>
+            <p class="trait-observation is-hidden" id="ep-pace-obs"></p>
+            <div id="ep-pace-bars" class="bar-list"></div>
+          </article>
+
+          <article class="card">
+            <h3 class="card-title">주제별 적합도</h3>
+            <p class="trait-observation is-hidden" id="ep-topic-obs"></p>
+            <div id="ep-topic-bars" class="bar-list"></div>
+          </article>
+
+          <article class="card">
+            <h3 class="card-title">음향 특성</h3>
+            <p class="card-note">현재 음향 신호를 직접 측정하는 수단이 없어 수치를 산출하지 않습니다.</p>
+            <div id="ep-acoustic-traits" class="acoustic-trait-list"></div>
+          </article>
+        </div>
+      </div>
 
       <div class="panel-footer-actions">
         <button type="button" class="btn btn-primary" data-goto="matching">
