@@ -749,3 +749,562 @@ test('UI static contract: separates earprint_v1 and earprint_prediction_v1 keys 
     );
   }
 });
+
+// ===== v3 Tests: Holdout Experiment Immutability, Reason Chips, Earprint Traits Gate =====
+
+function buildCompMap() {
+  const map = {};
+  for (const item of compData.items) {
+    map[item.speakerId] = item;
+  }
+  return map;
+}
+
+function buildCalibrationRatings(compMap, ratingFn) {
+  const { calibration } = matching.partitionExperimentSpeakers(speakers, compMap);
+  const ratings = {};
+  calibration.forEach((speaker, idx) => {
+    ratings[speaker.id] = ratingFn(speaker, idx);
+  });
+  return ratings;
+}
+
+test('v3 Holdout partition & calibration status: splits exact 8 calibration and 4 holdout quiz speakers', () => {
+  const compMap = buildCompMap();
+  const partition = matching.partitionExperimentSpeakers(speakers, compMap);
+
+  assert.equal(partition.calibration.length, 8);
+  assert.equal(partition.holdout.length, 4);
+  assert.deepEqual(
+    partition.holdoutIds.slice().sort(),
+    ['celeste-headlee', 'julian-treasure', 'ken-robinson', 'tim-urban']
+  );
+  for (const h of partition.holdout) {
+    assert.equal(compMap[h.id].quizAvailable, true);
+  }
+  for (const c of partition.calibration) {
+    assert.equal(compMap[c.id].quizAvailable, false);
+  }
+
+  const emptyStatus = matching.getCalibrationStatus(speakers, {}, compMap);
+  assert.equal(emptyStatus.completedCount, 0);
+  assert.equal(emptyStatus.total, 8);
+  assert.equal(emptyStatus.isComplete, false);
+
+  const partialRatings = {};
+  partition.calibration.slice(0, 7).forEach((s) => {
+    partialRatings[s.id] = { clarity: 'clear', comprehension: 4 };
+  });
+  // Even if holdout speakers are rated, calibration is still incomplete at 7/8
+  partialRatings['ken-robinson'] = { clarity: 'clear', comprehension: 5 };
+  const partialStatus = matching.getCalibrationStatus(speakers, partialRatings, compMap);
+  assert.equal(partialStatus.completedCount, 7);
+  assert.equal(partialStatus.isComplete, false);
+
+  partialRatings[partition.calibration[7].id] = { clarity: 'moderate', comprehension: 3 };
+  const doneStatus = matching.getCalibrationStatus(speakers, partialRatings, compMap);
+  assert.equal(doneStatus.completedCount, 8);
+  assert.equal(doneStatus.isComplete, true);
+});
+
+test('v3 Holdout freeze: refuses freeze before 8/8 calibration and freezes 4 holdout predictions with version, timestamp, and no holdout leakage', () => {
+  const compMap = buildCompMap();
+  const partition = matching.partitionExperimentSpeakers(speakers, compMap);
+
+  const sevenRatings = {};
+  partition.calibration.slice(0, 7).forEach((s) => {
+    sevenRatings[s.id] = { clarity: 'clear', comprehension: 5 };
+  });
+  const incompleteRes = matching.freezeHoldoutPredictions(null, speakers, sevenRatings, {
+    comprehensionMap: compMap,
+    rng: () => 0.25,
+    now: '2026-11-22T00:00:00.000Z',
+  });
+  assert.equal(incompleteRes.status, 'calibration_incomplete');
+  assert.equal(incompleteRes.changed, false);
+  assert.equal(incompleteRes.experiment, null);
+
+  const fullCalRatings = buildCalibrationRatings(compMap, (s) =>
+    s.accent === 'UK' ? { clarity: 'clear', comprehension: 5 } : { clarity: 'moderate', comprehension: 3 }
+  );
+
+  // Add a conflicting holdout rating to verify zero holdout data leakage into frozen predictions
+  const ratingsWithHoldout = {
+    ...fullCalRatings,
+    'ken-robinson': { clarity: 'hard', comprehension: 1 },
+  };
+
+  const freezeClean = matching.freezeHoldoutPredictions(null, speakers, fullCalRatings, {
+    comprehensionMap: compMap,
+    rng: () => 0.25,
+    now: '2026-11-22T00:05:00.000Z',
+  });
+  const freezeWithLeakAttempt = matching.freezeHoldoutPredictions(null, speakers, ratingsWithHoldout, {
+    comprehensionMap: compMap,
+    rng: () => 0.25,
+    now: '2026-11-22T00:05:00.000Z',
+  });
+
+  assert.equal(freezeClean.status, 'frozen');
+  assert.equal(freezeClean.changed, true);
+  assert.equal(freezeClean.experiment.locked, true);
+  assert.equal(freezeClean.experiment.algorithmVersion, 'v1');
+  assert.equal(freezeClean.experiment.algorithmVersionLabel, '예측 모델 v1');
+  assert.equal(freezeClean.experiment.frozenAt, '2026-11-22T00:05:00.000Z');
+  assert.equal(freezeClean.experiment.queue.length, 4);
+  assert.deepEqual(
+    freezeClean.experiment.queue.map((q) => q.group),
+    ['recommended', 'random', 'recommended', 'random']
+  );
+
+  // Must match predictScore on calibration-only profile (no leakage from holdout rating)
+  assert.deepEqual(freezeWithLeakAttempt.experiment.predictions, freezeClean.experiment.predictions);
+
+  const calProfile = matching.computeEarprintProfile(speakers, fullCalRatings);
+  for (const hId of matching.HOLDOUT_SPEAKER_IDS) {
+    const hSpeaker = speakers.find((s) => s.id === hId);
+    assert.ok(freezeClean.experiment.predictions[hId]);
+    assert.equal(
+      freezeClean.experiment.predictions[hId].predictedScore,
+      matching.predictScore(calProfile, hSpeaker)
+    );
+  }
+});
+
+test('v3 Holdout immutability: frozen predictions stay unchanged even after calibration ratings and Earprint profile change', () => {
+  const compMap = buildCompMap();
+  const initialRatings = buildCalibrationRatings(compMap, () => ({
+    clarity: 'clear',
+    comprehension: 5,
+  }));
+
+  const firstFreeze = matching.freezeHoldoutPredictions(null, speakers, initialRatings, {
+    comprehensionMap: compMap,
+    rng: () => 0.4,
+    now: '2026-11-22T00:10:00.000Z',
+  });
+  assert.equal(firstFreeze.status, 'frozen');
+  const snapshotBefore = JSON.parse(JSON.stringify(firstFreeze.experiment));
+
+  // Mutate every single calibration rating to the opposite extreme (hard, 1)
+  const flippedRatings = buildCalibrationRatings(compMap, () => ({
+    clarity: 'hard',
+    comprehension: 1,
+  }));
+  const liveProfileBefore = matching.computeEarprintProfile(speakers, initialRatings);
+  const liveProfileAfter = matching.computeEarprintProfile(speakers, flippedRatings);
+  const ken = speakers.find((s) => s.id === 'ken-robinson');
+  assert.notEqual(
+    matching.predictScore(liveProfileBefore, ken),
+    matching.predictScore(liveProfileAfter, ken),
+    'Sanity check: live predictScore must differ after profile mutation'
+  );
+
+  // Attempting to freeze again without explicit reset MUST preserve original frozen predictions verbatim
+  const secondAttempt = matching.freezeHoldoutPredictions(
+    firstFreeze.experiment,
+    speakers,
+    flippedRatings,
+    {
+      comprehensionMap: compMap,
+      rng: () => 0.9,
+      now: '2026-11-22T01:00:00.000Z',
+    }
+  );
+  assert.equal(secondAttempt.status, 'already_locked');
+  assert.equal(secondAttempt.changed, false);
+  assert.deepEqual(secondAttempt.experiment, snapshotBefore);
+
+  // Recording a holdout result MUST use the frozen predictedScore (not the mutated live profile)
+  const recorded = matching.recordHoldoutResult(secondAttempt.experiment, {
+    speakerId: 'ken-robinson',
+    rating: { clarity: 'moderate', comprehension: 3 },
+    quizResult: { correctCount: 1, totalQuestions: 2, accuracy: 0.5 },
+    quizSelectedIndices: [0, 0],
+    submittedAt: '2026-11-22T01:05:00.000Z',
+  });
+  assert.equal(recorded.ok, true);
+  assert.equal(
+    recorded.record.predictedScore,
+    snapshotBefore.predictions['ken-robinson'].predictedScore
+  );
+  assert.deepEqual(recorded.experiment.predictions, snapshotBefore.predictions);
+  assert.equal(recorded.experiment.frozenAt, snapshotBefore.frozenAt);
+  assert.equal(recorded.experiment.algorithmVersion, snapshotBefore.algorithmVersion);
+});
+
+test('v3 Holdout explicit reset: allows new prediction freeze ONLY after resetExperiment()', () => {
+  const compMap = buildCompMap();
+  const highRatings = buildCalibrationRatings(compMap, () => ({
+    clarity: 'clear',
+    comprehension: 5,
+  }));
+  const lowRatings = buildCalibrationRatings(compMap, () => ({
+    clarity: 'hard',
+    comprehension: 1,
+  }));
+
+  const frozen1 = matching.freezeHoldoutPredictions(null, speakers, highRatings, {
+    comprehensionMap: compMap,
+    rng: () => 0.2,
+    now: '2026-11-22T00:10:00.000Z',
+  }).experiment;
+
+  // Still locked -> cannot refreeze
+  const blocked = matching.freezeHoldoutPredictions(frozen1, speakers, lowRatings, {
+    comprehensionMap: compMap,
+    rng: () => 0.2,
+    now: '2026-11-22T00:20:00.000Z',
+  });
+  assert.equal(blocked.status, 'already_locked');
+  assert.equal(blocked.changed, false);
+  assert.equal(
+    blocked.experiment.predictions['ken-robinson'].predictedScore,
+    frozen1.predictions['ken-robinson'].predictedScore
+  );
+
+  // Explicit reset -> unlocks
+  const cleared = matching.resetExperiment();
+  assert.equal(cleared, null);
+
+  // Now refreeze succeeds with updated lowRatings predictions and new frozenAt
+  const refrozen = matching.freezeHoldoutPredictions(cleared, speakers, lowRatings, {
+    comprehensionMap: compMap,
+    rng: () => 0.2,
+    now: '2026-11-22T00:30:00.000Z',
+  });
+  assert.equal(refrozen.status, 'frozen');
+  assert.equal(refrozen.changed, true);
+  assert.equal(refrozen.experiment.frozenAt, '2026-11-22T00:30:00.000Z');
+  assert.ok(
+    refrozen.experiment.predictions['ken-robinson'].predictedScore <
+      frozen1.predictions['ken-robinson'].predictedScore
+  );
+});
+
+test('v3 Holdout record & report: rejects duplicates, masks untested Blind items, and aggregates numeric metrics', () => {
+  const compMap = buildCompMap();
+  const calRatings = buildCalibrationRatings(compMap, (s) =>
+    s.accent === 'UK' || s.accent === 'US'
+      ? { clarity: 'clear', comprehension: 4 }
+      : { clarity: 'moderate', comprehension: 3 }
+  );
+
+  let exp = matching.freezeHoldoutPredictions(null, speakers, calRatings, {
+    comprehensionMap: compMap,
+    rng: () => 0.3,
+    now: '2026-11-22T00:40:00.000Z',
+  }).experiment;
+
+  // Record first speaker
+  const firstId = exp.queue[0].speakerId;
+  const r1 = matching.recordHoldoutResult(exp, {
+    speakerId: firstId,
+    rating: { clarity: 'clear', comprehension: 5 },
+    quizResult: { correctCount: 2, totalQuestions: 2, accuracy: 1.0 },
+    quizSelectedIndices: [0, 1],
+    submittedAt: '2026-11-22T00:45:00.000Z',
+  });
+  assert.equal(r1.ok, true);
+  exp = r1.experiment;
+
+  // Duplicate submission rejected
+  const dup = matching.recordHoldoutResult(exp, {
+    speakerId: firstId,
+    rating: { clarity: 'hard', comprehension: 1 },
+    quizResult: { correctCount: 0, totalQuestions: 2, accuracy: 0 },
+  });
+  assert.equal(dup.ok, false);
+
+  // Mid-experiment report masks the 3 untested speakers (Blind protection)
+  const midReport = matching.summarizeExperimentReport(exp, speakers);
+  assert.equal(midReport.completedCount, 1);
+  assert.equal(midReport.bySpeaker.length, 4);
+  assert.equal(midReport.bySpeaker[0].completed, true);
+  assert.equal(midReport.bySpeaker[0].speakerId, firstId);
+  assert.equal(midReport.bySpeaker[1].completed, false);
+  assert.equal(midReport.bySpeaker[1].speakerId, null);
+  assert.equal(midReport.bySpeaker[1].group, null);
+  assert.equal(midReport.bySpeaker[1].predictedScore, null);
+
+  // Complete remaining 3 holdout speakers
+  for (let i = 1; i < exp.queue.length; i += 1) {
+    const spId = exp.queue[i].speakerId;
+    const isEven = i % 2 === 0;
+    const res = matching.recordHoldoutResult(exp, {
+      speakerId: spId,
+      rating: isEven
+        ? { clarity: 'clear', comprehension: 4 }
+        : { clarity: 'moderate', comprehension: 2 },
+      quizResult: isEven
+        ? { correctCount: 2, totalQuestions: 2, accuracy: 1.0 }
+        : { correctCount: 1, totalQuestions: 2, accuracy: 0.5 },
+      quizSelectedIndices: [0, 1],
+    });
+    assert.equal(res.ok, true);
+    exp = res.experiment;
+  }
+
+  const finalReport = matching.summarizeExperimentReport(exp, speakers);
+  assert.equal(finalReport.completedCount, 4);
+  assert.equal(finalReport.recommended.count, 2);
+  assert.equal(finalReport.random.count, 2);
+  assert.equal(finalReport.overall.count, 4);
+  assert.ok(typeof finalReport.overall.avgAbsErrorPct === 'number');
+  assert.ok(finalReport.bySpeaker.every((s) => s.completed === true && s.quizAccuracyPct !== null));
+});
+
+test('v3 Reason chips classification: emits only computable chips from the 4 allowed types', () => {
+  const julian = speakers.find((s) => s.id === 'julian-treasure'); // UK, medium, communication/creativity
+  const mcwilliams = speakers.find((s) => s.id === 'david-mcwilliams'); // Irish, fast, economics/society
+
+  // Empty profile -> no chips
+  assert.deepEqual(
+    matching.classifyRecommendationReasons(julian, { speakers, ratingsMap: {} }),
+    []
+  );
+
+  // All low ratings (contrast fallback) -> no positive chips
+  assert.deepEqual(
+    matching.classifyRecommendationReasons(julian, {
+      speakers,
+      ratingsMap: { 'ken-robinson': { clarity: 'hard', comprehension: 1 } },
+    }),
+    []
+  );
+
+  // Ken Robinson (UK, slow, education/creativity) rated high -> julian matches pace(adjacent), accent(UK), topic(creativity)
+  const kenHighRatings = { 'ken-robinson': { clarity: 'clear', comprehension: 5 } };
+  const julianChips = matching.classifyRecommendationReasons(julian, {
+    speakers,
+    ratingsMap: kenHighRatings,
+  });
+  assert.deepEqual(
+    julianChips.map((c) => c.label),
+    [
+      '발화 속도가 비슷한 화자',
+      '높은 이해도를 보인 악센트와 유사',
+      '동일 주제에서 높은 이해도를 보임',
+    ]
+  );
+
+  // Distant speaker with no matching pace/accent/topic -> empty array (never fabricates chips)
+  assert.deepEqual(
+    matching.classifyRecommendationReasons(mcwilliams, {
+      speakers,
+      ratingsMap: kenHighRatings,
+    }),
+    []
+  );
+
+  // If exact pace ('slow') is rated LOW while adjacent ('medium') is rated HIGH, do NOT emit pace chip for 'slow'
+  const slowLowMedHigh = {
+    'ken-robinson': { clarity: 'hard', comprehension: 1 }, // slow -> 0.0
+    'julian-treasure': { clarity: 'clear', comprehension: 5 }, // medium -> 1.0
+  };
+  const slowCandidate = { id: 'x-slow', accent: 'Swedish', pace: 'slow', topics: ['economics'] };
+  assert.deepEqual(
+    matching.classifyRecommendationReasons(slowCandidate, {
+      speakers,
+      ratingsMap: slowLowMedHigh,
+    }),
+    []
+  );
+
+  // Unknown accent never emits accent chip
+  const unknownAccentCand = { id: 'x-unk', accent: 'unknown', pace: 'fast', topics: ['economics'] };
+  assert.equal(
+    matching
+      .classifyRecommendationReasons(unknownAccentCand, { speakers, ratingsMap: kenHighRatings })
+      .some((c) => c.type === 'accent'),
+    false
+  );
+
+  // High actual Blind/Holdout test score emits 4th chip; low actual score does NOT
+  const withHighTest = matching.classifyRecommendationReasons(mcwilliams, {
+    speakers,
+    ratingsMap: kenHighRatings,
+    predictionRecords: [{ speakerId: 'david-mcwilliams', actualScore: 0.85 }],
+  });
+  assert.deepEqual(
+    withHighTest.map((c) => c.label),
+    ['실제 테스트에서 높은 이해도를 기록']
+  );
+
+  const withLowTest = matching.classifyRecommendationReasons(mcwilliams, {
+    speakers,
+    ratingsMap: kenHighRatings,
+    experimentResults: [{ speakerId: 'david-mcwilliams', actualScore: 0.3 }],
+  });
+  assert.deepEqual(withLowTest, []);
+});
+
+test('v3 Earprint traits & sample gate: blocks below minimum samples and unlocks measurable + unmeasured acoustic traits', () => {
+  assert.equal(matching.EARPRINT_MIN_TRAIT_SAMPLES, 3);
+
+  // 0, 1, 2 samples -> gated
+  for (const count of [0, 1, 2]) {
+    const partial = {};
+    speakers.slice(0, count).forEach((s) => {
+      partial[s.id] = { clarity: 'clear', comprehension: 5 };
+    });
+    const profile = matching.computeEarprintProfile(speakers, partial);
+    const traits = matching.buildEarprintTraits(profile);
+    assert.equal(traits.unlocked, false);
+    assert.equal(traits.gateMessage, '분석 중 — 데이터가 쌓이면 열립니다');
+    assert.equal(traits.measurable, null);
+    assert.deepEqual(traits.acousticTraits, []);
+  }
+
+  // 3 samples -> unlocked with accent, pace, topic (including evaluation counts) and unmeasured acoustic placeholders
+  const threeRatings = {
+    'ken-robinson': { clarity: 'clear', comprehension: 5 }, // UK, slow, education/creativity
+    'julian-treasure': { clarity: 'clear', comprehension: 4 }, // UK, medium, communication/creativity
+    'david-malan': { clarity: 'hard', comprehension: 2 }, // US, fast, technology/education
+  };
+  const profile3 = matching.computeEarprintProfile(speakers, threeRatings);
+  assert.ok(profile3.byTopic.length >= 3);
+  const creativityTopic = profile3.byTopic.find((t) => t.key === 'creativity');
+  assert.ok(creativityTopic);
+  assert.equal(creativityTopic.count, 2);
+
+  const traits3 = matching.buildEarprintTraits(profile3);
+  assert.equal(traits3.unlocked, true);
+  assert.equal(traits3.gateMessage, null);
+  assert.equal(traits3.measurable.accent.items[0].count, 2);
+  assert.ok(traits3.measurable.pace.items.length >= 3);
+  assert.ok(traits3.measurable.topic.items.length >= 3);
+
+  // Observational wording only (no deterministic ear-labeling phrasing)
+  const forbiddenDeterministic = ['당신은', '이런 귀', '귀를 가졌', '타고난'];
+  const observations = [
+    profile3.summaryText,
+    traits3.measurable.accent.observation,
+    traits3.measurable.pace.observation,
+    traits3.measurable.topic.observation,
+  ];
+  for (const text of observations) {
+    assert.ok(typeof text === 'string' && text.length > 0);
+    for (const phrase of forbiddenDeterministic) {
+      assert.equal(text.includes(phrase), false, `Forbidden deterministic phrase: ${phrase}`);
+    }
+  }
+
+  // Acoustic traits have NO fabricated numbers and exact unmeasured status
+  assert.equal(traits3.acousticTraits.length, 3);
+  for (const trait of traits3.acousticTraits) {
+    assert.equal(trait.status, '분석 중 — 아직 측정하지 않는 특성');
+    assert.equal('score' in trait, false);
+    assert.equal('avgScore' in trait, false);
+    assert.equal('avgScorePct' in trait, false);
+  }
+});
+
+test('v3 UI static contract: isolates all 3 localStorage keys, shows model version, and forbids judgmental/deterministic wording', () => {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+  const appJs = fs.readFileSync(path.join(__dirname, '..', 'js', 'app.js'), 'utf8');
+  const matchingJs = fs.readFileSync(path.join(__dirname, '..', 'js', 'matching.js'), 'utf8');
+
+  assert.ok(appJs.includes("const STORAGE_KEY = 'earprint_v1'"));
+  assert.ok(appJs.includes("const PREDICTION_STORAGE_KEY = 'earprint_prediction_v1'"));
+  assert.ok(appJs.includes("const EXPERIMENT_STORAGE_KEY = 'earprint_experiment_v1'"));
+  assert.ok(matchingJs.includes('예측 모델 v1'));
+  assert.ok(html.includes('분석 중 — 데이터가 쌓이면 열립니다'));
+  assert.ok(matchingJs.includes('분석 중 — 아직 측정하지 않는 특성'));
+
+  const expStart = html.indexOf('id="panel-experiment"');
+  const expEnd = html.indexOf('</section>', expStart);
+  const expHtml = html.slice(expStart, expEnd);
+  assert.ok(expStart > 0 && expEnd > expStart);
+
+  const forbiddenVerdictWords = ['우수', '우세', '승리', '입증', '성공', '더 좋', '더 높', '더 낮', '우월', '효과적'];
+  for (const word of forbiddenVerdictWords) {
+    assert.equal(
+      expHtml.includes(word),
+      false,
+      `Experiment panel must not contain judgmental phrasing: "${word}"`
+    );
+  }
+
+  const epStart = html.indexOf('id="panel-earprint"');
+  const epEnd = html.indexOf('</section>', epStart);
+  const epHtml = html.slice(epStart, epEnd);
+  assert.ok(epStart > 0 && epEnd > epStart);
+
+  const forbiddenDeterministic = ['당신은', '이런 귀', '귀를 가졌', '타고난'];
+  for (const word of forbiddenDeterministic) {
+    assert.equal(
+      epHtml.includes(word),
+      false,
+      `Earprint panel must not contain deterministic phrasing: "${word}"`
+    );
+  }
+});
+
+test('v3 isValidExperimentState: rejects corrupted, unlocked, missing-metadata, or mismatched experiment payloads', () => {
+  assert.equal(matching.isValidExperimentState(null), false);
+  assert.equal(matching.isValidExperimentState({}), false);
+  assert.equal(matching.isValidExperimentState({ locked: false }), false);
+  assert.equal(
+    matching.isValidExperimentState({
+      locked: true,
+      algorithmVersion: '',
+      frozenAt: '2026-11-22T00:00:00.000Z',
+      predictions: {},
+      queue: [],
+      results: [],
+    }),
+    false
+  );
+  assert.equal(
+    matching.isValidExperimentState({
+      locked: true,
+      algorithmVersion: 'v1',
+      frozenAt: '2026-11-22T00:00:00.000Z',
+      predictions: { 'ken-robinson': { predictedScore: 0.7 } },
+      queue: [{ speakerId: 'ken-robinson', group: 'recommended', predictedScore: 0.9 }],
+      results: [],
+    }),
+    false
+  );
+});
+
+test('v3 Holdout freeze (all-low calibration fallback): freezes valid [0, 1] predictions and alternating 2/2 queue even when all 8 calibration ratings are low', () => {
+  const compMap = buildCompMap();
+  const allLowRatings = buildCalibrationRatings(compMap, () => ({
+    clarity: 'hard',
+    comprehension: 1,
+  }));
+
+  const res = matching.freezeHoldoutPredictions(null, speakers, allLowRatings, {
+    comprehensionMap: compMap,
+    rng: () => 0.1,
+    now: '2026-11-22T02:00:00.000Z',
+  });
+  assert.equal(res.status, 'frozen');
+  assert.equal(res.experiment.queue.length, 4);
+  assert.deepEqual(
+    res.experiment.queue.map((q) => q.group),
+    ['recommended', 'random', 'recommended', 'random']
+  );
+  for (const item of res.experiment.queue) {
+    assert.ok(typeof item.predictedScore === 'number' && item.predictedScore >= 0 && item.predictedScore <= 1);
+  }
+});
+
+test('v3 buildEarprintTraits: handles null profile safely and respects custom minSamples option', () => {
+  const nullTraits = matching.buildEarprintTraits(null);
+  assert.equal(nullTraits.unlocked, false);
+  assert.equal(nullTraits.evaluatedCount, 0);
+  assert.equal(nullTraits.gateMessage, '분석 중 — 데이터가 쌓이면 열립니다');
+
+  const twoRatings = {
+    'ken-robinson': { clarity: 'clear', comprehension: 5 },
+    'julian-treasure': { clarity: 'moderate', comprehension: 3 },
+  };
+  const profile2 = matching.computeEarprintProfile(speakers, twoRatings);
+  assert.equal(matching.buildEarprintTraits(profile2).unlocked, false);
+  assert.equal(matching.buildEarprintTraits(profile2, { minSamples: 2 }).unlocked, true);
+});
+
+
