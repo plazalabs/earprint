@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
+  <title>EARPRINT — 나에게 잘 들리는 화자 탐색</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="header-inner">
+      <div class="brand-row">
+        <div>
+          <h1 class="brand-title">EARPRINT</h1>
+          <p class="brand-sub">내 귀에 잘 들리는 실제 화자 탐색·매칭 MVP</p>
+        </div>
+        <div class="progress-pill" id="header-progress" aria-live="polite">
+          평가 0 / 12
+        </div>
+      </div>
+
+      <nav class="step-nav" aria-label="주요 기능 이동">
+        <button type="button" class="nav-btn is-active" data-tab="discover" id="tab-discover">
+          1. 발견·평가
+        </button>
+        <button type="button" class="nav-btn" data-tab="earprint" id="tab-earprint">
+          2. Earprint
+        </button>
+        <button type="button" class="nav-btn" data-tab="matching" id="tab-matching">
+          3. 추천 <span class="nav-badge" id="badge-matching">0</span>
+        </button>
+        <button type="button" class="nav-btn" data-tab="explorer" id="tab-explorer">
+          4. 콘텐츠
+        </button>
+      </nav>
+    </div>
+  </header>
+
+  <main class="app-main">
+    <div id="load-error" class="alert-box is-hidden" role="alert"></div>
+
+    <!-- SECTION 1 & 2: Voice Discovery + Listening Test -->
+    <section class="panel is-active" id="panel-discover" aria-labelledby="heading-discover">
+      <div class="section-head">
+        <h2 id="heading-discover">화자 발견 &amp; 청취 평가</h2>
+        <p class="section-desc">
+          실제 공개 강연 클립을 듣고 얼마나 잘 들리는지 평가하세요. 영상은 YouTube 공식 임베드로 재생됩니다.
+        </p>
+      </div>
+
+      <!-- Active Speaker Player Card -->
+      <article class="card player-card" id="active-speaker-card">
+        <div class="speaker-header">
+          <div>
+            <p class="speaker-channel" id="speaker-channel">채널</p>
+            <h3 class="speaker-name" id="speaker-name">화자를 불러오는 중...</h3>
+            <p class="clip-title" id="clip-title"></p>
+          </div>
+          <span class="status-tag" id="speaker-rated-status">미평가</span>
+        </div>
+
+        <div class="tag-row" id="speaker-tags"></div>
+
+        <div class="video-frame-wrap">
+          <iframe
+            id="youtube-player"
+            class="video-frame"
+            title="YouTube 공개 강연 클립"
+            src=""
+            loading="lazy"
+            referrerpolicy="strict-origin-when-cross-origin"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            allowfullscreen
+          ></iframe>
+        </div>
+
+        <div class="clip-meta-row">
+          <span class="meta-note" id="clip-start-note">시작 위치: 0초</span>
+          <a
+            id="clip-original-link"
+            class="text-link"
+            href="#"
+            target="_blank"
+            rel="noopener noreferrer"
+          >YouTube에서 직접 열기 ↗</a>
+        </div>
+
+        <!-- Feature 2: Listening Test Form -->
+        <form class="test-form" id="listening-test-form">
+          <div class="form-group">
+            <span class="form-label">1) 얼마나 잘 들렸나요?</span>
+            <div class="clarity-options" role="radiogroup" aria-label="청취 명확도">
+              <label class="choice-chip">
+                <input type="radio" name="clarity" value="clear">
+                <span>잘 들림</span>
+              </label>
+              <label class="choice-chip">
+                <input type="radio" name="clarity" value="moderate">
+                <span>보통</span>
+              </label>
+              <label class="choice-chip">
+                <input type="radio" name="clarity" value="hard">
+                <span>잘 안 들림</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <span class="form-label">2) 내용 이해도 (1~5)</span>
+            <div class="scale-options" role="radiogroup" aria-label="내용 이해도 1에서 5">
+              <label class="scale-chip">
+                <input type="radio" name="comprehension" value="1">
+                <span>1</span>
+              </label>
+              <label class="scale-chip">
+                <input type="radio" name="comprehension" value="2">
+                <span>2</span>
+              </label>
+              <label class="scale-chip">
+                <input type="radio" name="comprehension" value="3">
+                <span>3</span>
+              </label>
+              <label class="scale-chip">
+                <input type="radio" name="comprehension" value="4">
+                <span>4</span>
+              </label>
+              <label class="scale-chip">
+                <input type="radio" name="comprehension" value="5">
+                <span>5</span>
+              </label>
+            </div>
+            <div class="scale-hints">
+              <span>1: 거의 이해 못함</span>
+              <span>5: 대부분 이해함</span>
+            </div>
+          </div>
+
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary" id="btn-save-rating">
+              평가 저장
+            </button>
+            <button type="button" class="btn btn-secondary" id="btn-next-speaker">
+              다음 화자 →
+            </button>
+          </div>
+          <p class="form-feedback" id="form-feedback" aria-live="polite"></p>
+        </form>
+      </article>
+
+      <!-- All 12 Speakers Roster -->
+      <div class="roster-section">
+        <div class="roster-head">
+          <h3>전체 화자 12명</h3>
+          <span class="roster-hint">발화 속도 태그는 모두 추정치입니다</span>
+        </div>
+        <div class="speaker-grid" id="speaker-roster" role="list"></div>
+      </div>
+    </section>
+
+    <!-- SECTION 3: Earprint Summary -->
+    <section class="panel" id="panel-earprint" aria-labelledby="heading-earprint">
+      <div class="section-head">
+        <h2 id="heading-earprint">나의 Earprint</h2>
+        <p class="section-desc">
+          평가 기록은 브라우저(<code>localStorage: earprint_v1</code>)에만 저장됩니다.
+        </p>
+      </div>
+
+      <article class="card summary-card">
+        <div class="kpi-grid">
+          <div class="kpi-item">
+            <span class="kpi-label">평가한 화자</span>
+            <strong class="kpi-value" id="ep-count">0 / 12</strong>
+          </div>
+          <div class="kpi-item">
+            <span class="kpi-label">평균 청취 적합도</span>
+            <strong class="kpi-value" id="ep-score">-</strong>
+          </div>
+          <div class="kpi-item">
+            <span class="kpi-label">평균 이해도</span>
+            <strong class="kpi-value" id="ep-comp">-</strong>
+          </div>
+        </div>
+        <p class="summary-sentence" id="ep-summary-text"></p>
+      </article>
+
+      <article class="card">
+        <h3 class="card-title">악센트별 청취 적합도</h3>
+        <div id="ep-accent-bars" class="bar-list"></div>
+      </article>
+
+      <article class="card">
+        <h3 class="card-title">발화 속도별 청취 적합도 <span class="est-pill">추정</span></h3>
+        <p class="card-note">속도 태그는 강연 특성 기반의 추정치이며 음향 측정값이 아닙니다.</p>
+        <div id="ep-pace-bars" class="bar-list"></div>
+      </article>
+
+      <div class="panel-footer-actions">
+        <button type="button" class="btn btn-primary" data-goto="matching">
+          맞춤 화자 추천 보기 →
+        </button>
+        <button type="button" class="btn btn-danger-outline" id="btn-reset-ratings">
+          평가 기록 초기화
+        </button>
+      </div>
+    </section>
+
+    <!-- SECTION 4: Voice Matching -->
+    <section class="panel" id="panel-matching" aria-labelledby="heading-matching">
+      <div class="section-head">
+        <h2 id="heading-matching">맞춤 화자 추천 (Voice Matching)</h2>
+        <p class="section-desc" id="matching-status-text">
+          높게 평가한 화자와 악센트·발화 속도(추정)·주제가 가까운 미평가 화자를 추천합니다.
+        </p>
+      </div>
+
+      <div id="recommendations-list" class="rec-list"></div>
+
+      <div class="panel-footer-actions">
+        <button type="button" class="btn btn-primary" data-goto="explorer">
+          추천 화자의 다른 콘텐츠 보기 →
+        </button>
+      </div>
+    </section>
+
+    <!-- SECTION 5: Content Explorer -->
+    <section class="panel" id="panel-explorer" aria-labelledby="heading-explorer">
+      <div class="section-head">
+        <h2 id="heading-explorer">콘텐츠 탐색 (Content Explorer)</h2>
+        <p class="section-desc" id="explorer-status-text">
+          추천된 화자의 다른 공개 강연·인터뷰 YouTube 링크 목록입니다.
+        </p>
+      </div>
+
+      <div id="explorer-list" class="explorer-list"></div>
+    </section>
+  </main>
+
+  <footer class="app-footer">
+    <div class="footer-inner">
+      <p>
+        EARPRINT MVP · 영상 다운로드·음성 추출·스크래핑 없이 YouTube 공식 임베드만 사용합니다.
+      </p>
+      <p>
+        발화 속도 태그는 <strong>추정</strong>이며, 나이·성별 등 음성 기반 추정은 포함하지 않습니다.
+      </p>
+    </div>
+  </footer>
+
+  <script src="js/matching.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
