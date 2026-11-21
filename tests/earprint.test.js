@@ -420,3 +420,332 @@ test('recommendSpeakers: produces deterministic results across repeated calls', 
   const run2 = matching.recommendSpeakers(speakers, ratings, { limit: 5 });
   assert.deepEqual(run1, run2);
 });
+
+// ===== v2 Tests: Objective Comprehension, Prediction, Error, Alternation & Report =====
+
+const COMPREHENSION_PATH = path.join(__dirname, '..', 'data', 'comprehension.json');
+const compData = JSON.parse(fs.readFileSync(COMPREHENSION_PATH, 'utf8'));
+
+test('comprehension.json: passes full audit across all 12 speakers (segments, 2 questions, 4 choices, answerIndex, excerpts)', () => {
+  const audit = matching.validateComprehensionData(compData, rawData);
+  assert.equal(audit.valid, true, `Comprehension audit errors: ${audit.errors.join('; ')}`);
+  assert.equal(audit.summary.totalSpeakers, 12);
+  assert.equal(
+    audit.summary.quizAvailableCount + audit.summary.quizUnavailableCount,
+    12
+  );
+  assert.ok(audit.summary.quizAvailableCount >= 1);
+  assert.equal(audit.summary.totalQuestions, audit.summary.quizAvailableCount * 2);
+
+  const speakerMap = new Map(speakers.map((s) => [s.id, s]));
+  for (const item of compData.items) {
+    const speaker = speakerMap.get(item.speakerId);
+    assert.ok(speaker, `Unknown speakerId ${item.speakerId}`);
+    assert.equal(item.videoId, speaker.clip.videoId);
+    assert.equal(item.startSeconds, speaker.clip.startSeconds);
+    assert.equal(item.endSeconds - item.startSeconds, item.durationSeconds);
+    assert.ok(item.durationSeconds >= 40 && item.durationSeconds <= 60);
+
+    if (item.quizAvailable) {
+      assert.equal(item.questions.length, 2);
+      assert.ok(typeof item.sourceExcerpt === 'string' && item.sourceExcerpt.trim().length >= 20);
+      assert.ok(typeof item.sourceUrl === 'string' && item.sourceUrl.startsWith('https://'));
+      for (const q of item.questions) {
+        assert.equal(q.choices.length, 4);
+        assert.equal(Number.isInteger(q.answerIndex), true);
+        assert.ok(q.answerIndex >= 0 && q.answerIndex <= 3);
+      }
+    } else {
+      assert.deepEqual(item.questions, []);
+      assert.ok(typeof item.reason === 'string' && item.reason.trim().length > 0);
+    }
+  }
+});
+
+test('validateComprehensionData: catches invalid question counts, choice counts, answerIndex bounds, missing excerpts, and bad durations', () => {
+  const brokenComp = {
+    items: [
+      {
+        speakerId: 'ken-robinson',
+        videoId: 'iG9CE55wbtY',
+        startSeconds: 60,
+        endSeconds: 85, // 25s < 40s
+        durationSeconds: 25,
+        quizAvailable: true,
+        sourceExcerpt: '',
+        sourceUrl: 'not-a-url',
+        questions: [
+          {
+            id: 'q1',
+            prompt: 'Only one question',
+            choices: ['A', 'B', 'C'], // only 3 choices
+            answerIndex: 5, // out of range
+          },
+        ],
+      },
+    ],
+  };
+
+  const result = matching.validateComprehensionData(brokenComp, { speakers: [speakers[0]] });
+  assert.equal(result.valid, false);
+  assert.ok(result.errors.some((e) => e.includes('between 40 and 60')));
+  assert.ok(result.errors.some((e) => e.includes('sourceExcerpt')));
+  assert.ok(result.errors.some((e) => e.includes('sourceUrl')));
+  assert.ok(result.errors.some((e) => e.includes('exactly 2 questions')));
+});
+
+test('predictScore: runs without DOM and rejects empty/invalid profile or speaker inputs', () => {
+  assert.equal(typeof globalThis.document, 'undefined');
+  assert.equal(typeof matching.predictScore, 'function');
+
+  const emptyProfile = matching.computeEarprintProfile(speakers, {});
+  assert.equal(matching.predictScore(emptyProfile, speakers[0]), null);
+  assert.equal(matching.predictScore(null, speakers[0]), null);
+  assert.equal(matching.predictScore(emptyProfile, null), null);
+  assert.equal(matching.predictScore({ evaluatedCount: 1, avgScore: NaN }, speakers[0]), null);
+});
+
+test('predictScore: predicts higher scores for matched accent/pace than poorly-rated features and stays in [0, 1]', () => {
+  const ratings = {
+    'ken-robinson': { clarity: 'clear', comprehension: 5 }, // UK, slow -> 1.0
+    'david-malan': { clarity: 'hard', comprehension: 1 }, // US, fast -> 0.0
+  };
+  const profile = matching.computeEarprintProfile(speakers, ratings);
+
+  const ukSlowScore = matching.predictScore(profile, { id: 'x1', accent: 'UK', pace: 'slow' });
+  const ukMedScore = matching.predictScore(profile, { id: 'x2', accent: 'UK', pace: 'medium' });
+  const unseenScore = matching.predictScore(profile, { id: 'x3', accent: 'Swedish', pace: 'medium' });
+  const usFastScore = matching.predictScore(profile, { id: 'x4', accent: 'US', pace: 'fast' });
+
+  assert.equal(ukSlowScore, 0.9);
+  assert.equal(ukMedScore, 0.725);
+  assert.equal(unseenScore, 0.5);
+  assert.equal(usFastScore, 0.1);
+  assert.ok(ukSlowScore > ukMedScore);
+  assert.ok(ukMedScore > unseenScore);
+  assert.ok(unseenScore > usFastScore);
+
+  for (const s of speakers) {
+    const score = matching.predictScore(profile, s);
+    assert.ok(typeof score === 'number' && score >= 0 && score <= 1);
+  }
+});
+
+test('predictScore: differentiates seen vs unseen features even with a single high rating and handles unknown accent', () => {
+  const ratings = {
+    'ken-robinson': { clarity: 'clear', comprehension: 5 }, // UK, slow -> 1.0
+  };
+  const profile = matching.computeEarprintProfile(speakers, ratings);
+
+  const ukSlow = matching.predictScore(profile, { accent: 'UK', pace: 'slow' });
+  const ukMedium = matching.predictScore(profile, { accent: 'UK', pace: 'medium' });
+  const usFast = matching.predictScore(profile, { accent: 'US', pace: 'fast' });
+  const unknownAccent = matching.predictScore(profile, { accent: 'unknown', pace: 'fast' });
+
+  assert.ok(ukSlow > ukMedium);
+  assert.ok(ukMedium > usFast);
+  assert.equal(usFast, unknownAccent);
+});
+
+test('gradeQuiz: grades 2-question 4-choice answers accurately and rejects malformed inputs', () => {
+  const sampleQs = compData.items.find((i) => i.quizAvailable).questions;
+  const allRight = matching.gradeQuiz(sampleQs, [sampleQs[0].answerIndex, sampleQs[1].answerIndex]);
+  assert.equal(allRight.correctCount, 2);
+  assert.equal(allRight.totalQuestions, 2);
+  assert.equal(allRight.accuracy, 1);
+  assert.equal(allRight.accuracyPct, 100);
+  assert.deepEqual(allRight.itemResults, [true, true]);
+
+  const wrongIdx0 = (sampleQs[0].answerIndex + 1) % 4;
+  const halfRight = matching.gradeQuiz(sampleQs, [wrongIdx0, sampleQs[1].answerIndex]);
+  assert.equal(halfRight.correctCount, 1);
+  assert.equal(halfRight.accuracy, 0.5);
+  assert.deepEqual(halfRight.itemResults, [false, true]);
+
+  assert.equal(matching.gradeQuiz(sampleQs, [0]), null);
+  assert.equal(matching.gradeQuiz(sampleQs, [0, 4]), null);
+  assert.equal(matching.gradeQuiz(sampleQs, [-1, 0]), null);
+  assert.equal(matching.gradeQuiz([], []), null);
+});
+
+test('computeActualScore & computePredictionError: compute exact combined, subjective-only, signed, and absolute errors', () => {
+  const combined = matching.computeActualScore(
+    { clarity: 'clear', comprehension: 3 }, // subjective = 0.75
+    { accuracy: 0.5 }
+  );
+  assert.equal(combined.mode, 'combined');
+  assert.equal(combined.subjectiveScore, 0.75);
+  assert.equal(combined.quizAccuracy, 0.5);
+  assert.equal(combined.actualScore, 0.625);
+
+  const subjOnly = matching.computeActualScore({ clarity: 'moderate', comprehension: 4 }, null);
+  assert.equal(subjOnly.mode, 'subjective_only');
+  assert.equal(subjOnly.actualScore, 0.625);
+  assert.equal(subjOnly.quizAccuracy, null);
+
+  assert.equal(matching.computeActualScore({ clarity: 'bad', comprehension: 3 }, null), null);
+
+  const errPos = matching.computePredictionError(0.8, 0.625);
+  assert.equal(errPos.signedError, 0.175);
+  assert.equal(errPos.absError, 0.175);
+  assert.equal(errPos.signedErrorPct, 17.5);
+  assert.equal(errPos.absErrorPct, 17.5);
+
+  const errNeg = matching.computePredictionError(0.4, 0.75);
+  assert.equal(errNeg.signedError, -0.35);
+  assert.equal(errNeg.absError, 0.35);
+  assert.equal(errNeg.signedErrorPct, -35);
+  assert.equal(errNeg.absErrorPct, 35);
+
+  const errZero = matching.computePredictionError(0.5, 0.5);
+  assert.equal(errZero.absError, 0);
+  assert.equal(errZero.signedError, 0);
+
+  assert.equal(matching.computePredictionError(-0.1, 0.5), null);
+  assert.equal(matching.computePredictionError(0.5, 1.2), null);
+  assert.equal(matching.computePredictionError(NaN, 0.5), null);
+});
+
+test('buildPredictionSession: strictly alternates recommended and random without duplicates and freezes predictedScore', () => {
+  const ratings = {
+    'ken-robinson': { clarity: 'clear', comprehension: 5 },
+    'david-malan': { clarity: 'hard', comprehension: 1 },
+  };
+  let seed = 0.37;
+  const fakeRng = () => {
+    seed = (seed * 7 + 0.13) % 1;
+    return seed;
+  };
+
+  const session = matching.buildPredictionSession(speakers, ratings, {
+    rng: fakeRng,
+    startGroup: 'recommended',
+  });
+
+  assert.equal(session.status, 'ready');
+  assert.equal(session.queue.length, 10);
+  assert.equal(session.recommendedCount, 5);
+  assert.equal(session.randomCount, 5);
+
+  const seenIds = new Set();
+  session.queue.forEach((item, idx) => {
+    const expectedGroup = idx % 2 === 0 ? 'recommended' : 'random';
+    assert.equal(item.group, expectedGroup);
+    assert.equal(seenIds.has(item.speaker.id), false);
+    assert.equal(item.speaker.id in ratings, false);
+    assert.ok(typeof item.predictedScore === 'number' && item.predictedScore >= 0 && item.predictedScore <= 1);
+    seenIds.add(item.speaker.id);
+  });
+
+  // First recommended speaker should be top recommendation for Ken Robinson (UK) -> julian-treasure
+  assert.equal(session.queue[0].speaker.id, 'julian-treasure');
+});
+
+test('buildPredictionSession: respects excludeIds, startGroup=random, quizOnly, and empty boundary states', () => {
+  const noRatingSession = matching.buildPredictionSession(speakers, {});
+  assert.equal(noRatingSession.status, 'no_ratings');
+  assert.deepEqual(noRatingSession.queue, []);
+
+  const ratings = { 'ken-robinson': { clarity: 'clear', comprehension: 5 } };
+  const compMap = {};
+  compData.items.forEach((item) => {
+    compMap[item.speakerId] = item;
+  });
+
+  const quizOnlySession = matching.buildPredictionSession(speakers, ratings, {
+    startGroup: 'random',
+    quizOnly: true,
+    comprehensionMap: compMap,
+    rng: () => 0.5,
+  });
+  assert.equal(quizOnlySession.status, 'ready');
+  assert.equal(quizOnlySession.queue.length, 3); // 4 quiz speakers minus rated ken-robinson
+  assert.deepEqual(
+    quizOnlySession.queue.map((q) => q.group),
+    ['random', 'recommended', 'random']
+  );
+
+  const allExcluded = speakers.map((s) => s.id);
+  const exhausted = matching.buildPredictionSession(speakers, ratings, { excludeIds: allExcluded });
+  assert.equal(exhausted.status, 'no_candidates');
+  assert.deepEqual(exhausted.queue, []);
+});
+
+test('summarizePredictionReport: aggregates recommended vs random numerically and ignores malformed entries', () => {
+  const emptyReport = matching.summarizePredictionReport([]);
+  assert.equal(emptyReport.totalCount, 0);
+  assert.equal(emptyReport.recommended.count, 0);
+  assert.equal(emptyReport.random.count, 0);
+  assert.equal(emptyReport.recommended.avgActualScore, null);
+  assert.equal(emptyReport.random.avgAbsError, null);
+
+  const records = [
+    {
+      group: 'recommended',
+      predictedScore: 0.8,
+      actualScore: 0.9,
+      quizAccuracy: 1.0,
+      subjectiveScore: 0.8,
+      rating: { clarity: 'clear', comprehension: 4 },
+    },
+    {
+      group: 'recommended',
+      predictedScore: 0.7,
+      actualScore: 0.6,
+      quizAccuracy: null,
+      subjectiveScore: 0.6,
+      rating: { clarity: 'moderate', comprehension: 4 },
+    },
+    {
+      group: 'random',
+      predictedScore: 0.5,
+      actualScore: 0.3,
+      quizAccuracy: 0.5,
+      subjectiveScore: 0.1,
+      rating: { clarity: 'hard', comprehension: 2 },
+    },
+    // Malformed entries must be safely ignored
+    { group: 'unknown', predictedScore: 0.5, actualScore: 0.5 },
+    { group: 'random', predictedScore: 2.0, actualScore: 0.5 },
+    null,
+  ];
+
+  const summary = matching.summarizePredictionReport(records);
+  assert.equal(summary.totalCount, 3);
+
+  assert.equal(summary.recommended.count, 2);
+  assert.equal(summary.recommended.avgActualScorePct, 75);
+  assert.equal(summary.recommended.quizSampleCount, 1);
+  assert.equal(summary.recommended.avgQuizAccuracyPct, 100);
+  assert.equal(summary.recommended.avgSubjectiveComprehension, 4);
+  assert.equal(summary.recommended.avgAbsErrorPct, 10);
+
+  assert.equal(summary.random.count, 1);
+  assert.equal(summary.random.avgActualScorePct, 30);
+  assert.equal(summary.random.quizSampleCount, 1);
+  assert.equal(summary.random.avgQuizAccuracyPct, 50);
+  assert.equal(summary.random.avgSubjectiveComprehension, 2);
+  assert.equal(summary.random.avgAbsErrorPct, 20);
+});
+
+test('UI static contract: separates earprint_v1 and earprint_prediction_v1 keys and omits judgmental wording in report panel', () => {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+  const appJs = fs.readFileSync(path.join(__dirname, '..', 'js', 'app.js'), 'utf8');
+
+  assert.ok(appJs.includes("const STORAGE_KEY = 'earprint_v1'"));
+  assert.ok(appJs.includes("const PREDICTION_STORAGE_KEY = 'earprint_prediction_v1'"));
+
+  const reportStart = html.indexOf('id="panel-report"');
+  const reportEnd = html.indexOf('</section>', reportStart);
+  const reportHtml = html.slice(reportStart, reportEnd);
+  assert.ok(reportStart > 0 && reportEnd > reportStart);
+
+  const forbiddenVerdictWords = ['우수', '우세', '승리', '입증', '성공', '더 좋', '더 높', '더 낮'];
+  for (const word of forbiddenVerdictWords) {
+    assert.equal(
+      reportHtml.includes(word),
+      false,
+      `Report panel must not contain judgmental phrasing: "${word}"`
+    );
+  }
+});
